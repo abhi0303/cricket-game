@@ -19,6 +19,10 @@ export const CREDITS = [
     what: 'Keeper', title: 'Stylized Cricketer', author: 'kanesk06', authorUrl: 'https://sketchfab.com/kanesk06',
     url: 'https://sketchfab.com/3d-models/stylized-cricketer-8bb84d0f58dd4dac9d85d3a2e02c176b', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
   },
+  {
+    what: 'Fielders', title: 'indian male character', author: 'Aashutosh Dabhade', authorUrl: 'https://sketchfab.com/adabhade17',
+    url: 'https://sketchfab.com/3d-models/indian-male-character-0baf0a4bbe314764a8d7b639e8f600ca', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
+  },
 ];
 
 const a = (href, text) => `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(text)}</a>`;

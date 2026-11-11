@@ -7,17 +7,36 @@
 // Animation - Low Poly" by bhagathartworks, CC BY 4.0: a low-poly body on a Mixamo skeleton. The keeper
 // (assets/models/keeper) is "Stylized Cricketer" by kanesk06, CC BY 4.0, rigged by scripts/keeper-model.html with
 // the same bone names; his orange shirt and navy trousers are recoloured to the team's kit (whites in Tests).
+// The fielders (assets/models/fielder) are "indian male character" by Aashutosh Dabhade, CC BY 4.0, a Ready Player
+// Me avatar (scripts/fielder-model.html paints out its shirt lettering); its kit is recoloured by texture region.
+// Every body is sized so the player stands as tall as the built-in ones.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
-import { OFFSET, PARENT, LIMB } from './CharacterGeometry.js';
+import { OFFSET, PARENT, LIMB, HIP_HEIGHT } from './CharacterGeometry.js';
 
+// Colours a kit swap looks for in a texture.
+const CLASS = {
+  keeperOrange: (r, g, b) => r > 90 && g < r * 0.58 && b < r * 0.42,
+  navy: (r, g, b) => b > r + 6 && b > g + 6 && r < 95 && Math.abs(r - g) < 14,
+  blue: (r, g, b) => b > r + 30 && b > g + 5,
+  orange: (r, g, b) => r > 150 && r > g + 40 && b < r * 0.6,
+};
+
+// recolor: parts of the texture (rect: [x0, y0, x1, y1] as fractions) and in each, which colour becomes which part of
+// the team's kit (PlayerModel.kit: shirt, trousers, trim).
 export const BODIES = {
   batsman: { glb: 'assets/models/batsman/batsman.glb', tex: 'assets/models/batsman/body.jpg' },
   keeper: {
     glb: 'assets/models/keeper/keeper.glb', tex: 'assets/models/keeper/base.jpg', normal: 'assets/models/keeper/normal.jpg',
-    // the kit colours in the texture, swapped for the team's (PlayerModel.kit: shirt, trousers)
-    recolor: { shirt: [205, 84, 41], trousers: [45, 45, 64] },
+    recolor: [{ rect: [0, 0, 1, 1], swaps: [['keeperOrange', 'shirt'], ['navy', 'trousers']] }],
+  },
+  fielder: {
+    glb: 'assets/models/fielder/fielder.glb', tex: 'assets/models/fielder/base.jpg', normal: 'assets/models/fielder/normal.jpg',
+    recolor: [
+      { rect: [0, 0, 0.5, 0.5], swaps: [['blue', 'shirt'], ['orange', 'trim']] },            // shirt and sleeves
+      { rect: [0, 0.5, 0.375, 0.875], swaps: [['blue', 'trousers'], ['orange', 'trim']] },    // trousers
+    ],
   },
 };
 
@@ -25,28 +44,30 @@ const hexRGB = h => { const n = parseInt(String(h).replace('#', '').slice(0, 6),
 const lum = ([r, g, b]) => 0.3 * r + 0.59 * g + 0.11 * b;
 
 /**
- * The texture with its shirt and trousers in a kit's colours, keeping the shading: each kit pixel takes the new
- * colour scaled by how light or dark it was against the original colour. The skin, hair, gloves and shoes stay.
+ * The texture in a kit's colours, keeping the shading: in each region, each pixel of a swapped colour takes the
+ * kit colour scaled by how light or dark it is against that colour's average there. Everything else (skin, hair,
+ * gloves, shoes) stays.
  */
-function recolor(img, rc, kit) {
+function recolor(img, regions, kit) {
   const c = document.createElement('canvas');
-  c.width = img.width; c.height = img.height;
+  const W = c.width = img.width, H = c.height = img.height;
   const g = c.getContext('2d');
   g.drawImage(img, 0, 0);
-  const data = g.getImageData(0, 0, c.width, c.height), d = data.data;
-  const swaps = [
-    { test: (r, gg, b) => r > 90 && gg < r * 0.58 && b < r * 0.42, from: lum(rc.shirt), to: hexRGB(kit.shirt) },                          // orange shirt
-    { test: (r, gg, b) => b > r + 6 && b > gg + 6 && r < 95 && Math.abs(r - gg) < 14, from: lum(rc.trousers), to: hexRGB(kit.trousers) },  // navy trousers and panels
-  ];
-  for (const s of swaps) s.light = lum(s.to) > 150;
-  for (let i = 0; i < d.length; i += 4) {
-    const r = d[i], gg = d[i + 1], b = d[i + 2];
-    for (const s of swaps) {
-      if (!s.test(r, gg, b)) continue;
-      let k = lum([r, gg, b]) / s.from;
-      if (s.light) k = 0.82 + 0.18 * k;                       // a pale kit: keep the folds, don't blow out
-      d[i] = Math.min(255, s.to[0] * k); d[i + 1] = Math.min(255, s.to[1] * k); d[i + 2] = Math.min(255, s.to[2] * k);
-      break;
+  const data = g.getImageData(0, 0, W, H), d = data.data;
+  for (const { rect, swaps } of regions) {
+    const [x0, y0, x1, y1] = [rect[0] * W, rect[1] * H, rect[2] * W, rect[3] * H].map(Math.round);
+    const sw = swaps.map(([cls, part]) => ({ test: CLASS[cls], to: hexRGB(kit[part]), sum: 0, n: 0 }));
+    for (let pass = 0; pass < 2; pass++) {
+      if (pass === 1) for (const s of sw) { s.from = s.n ? s.sum / s.n : 1; s.light = lum(s.to) > 150; }
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        const i = (y * W + x) * 4, r = d[i], gg = d[i + 1], b = d[i + 2];
+        const s = sw.find(q => q.test(r, gg, b));
+        if (!s) continue;
+        if (pass === 0) { s.sum += lum([r, gg, b]); s.n++; continue; }
+        let k = lum([r, gg, b]) / s.from;
+        if (s.light) k = 0.82 + 0.18 * k;                     // a pale kit: keep the folds, don't blow out
+        d[i] = Math.min(255, s.to[0] * k); d[i + 1] = Math.min(255, s.to[1] * k); d[i + 2] = Math.min(255, s.to[2] * k);
+      }
     }
   }
   g.putImageData(data, 0, 0);
@@ -85,7 +106,7 @@ export function loadBody(name) {
       const kits = new Map();
       const materialFor = kit => {
         if (!def.recolor || !kit) return material;
-        const key = `${kit.shirt}|${kit.trousers}`;
+        const key = `${kit.shirt}|${kit.trousers}|${kit.trim}`;
         if (!kits.has(key)) kits.set(key, make(prep(new THREE.CanvasTexture(recolor(map.image, def.recolor, kit)), true)));
         return kits.get(key);
       };
@@ -100,7 +121,7 @@ const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3
 const _e = new THREE.Vector3(), _u = new THREE.Vector3(), _v = new THREE.Vector3(), _s = new THREE.Vector3();
 
 function findBone(scene, name) {
-  const re = new RegExp(`^mixamorig:?${name}(_\\d+)?$`);
+  const re = new RegExp(`^(mixamorig:?)?${name}(_\\d+)?$`);   // Mixamo, or the same names bare (Ready Player Me)
   let hit = null;
   scene.traverse(o => { if (!hit && o.isBone && re.test(o.name)) hit = o; });
   return hit;
@@ -174,6 +195,13 @@ export class RiggedBody {
     for (const [ours, from] of [['spine', 'hips'], ['chest', 'spine'], ['neck', 'chest'], ['head', 'neck'], ['armL', 'chest'], ['armR', 'chest']]) {
       model.b[ours].position.copy(rel(ours, from));
     }
+    // Sized like everyone else: the body was scaled to our leg length, so a model with a long body (or a stylised one,
+    // short in the leg and big in the head) would stand too tall. Scale the whole player so the head is at the height
+    // of a built-in player's.
+    const headAt = o => HIP_HEIGHT + o.spine[1] + o.chest[1] + o.neck[1] + o.head[1];
+    this.sizeFix = headAt(OFFSET) / headAt(Object.fromEntries(['spine', 'chest', 'neck', 'head'].map(k => [k, model.b[k].position.toArray()])));
+    model.root.scale.multiplyScalar(this.sizeFix);
+    model.heightScale *= this.sizeFix;
 
     // His arms are a little shorter than ours: lengthen the upper and lower arm bones to our lengths, so his hands
     // can reach the grips wherever ours are (the stretch is a few centimetres, taken up at the elbow and wrist).

@@ -1,0 +1,6 @@
+The fielder in this folder (fielder.glb, base.jpg, normal.jpg) is based on a model by Aashutosh Dabhade, adapted for
+the game (set in its bind pose; the lettering, logo and number on the shirt painted out; textures resized; the kit is
+recoloured in the game) by scripts/fielder-model.html:
+
+This work is based on "indian male character" (https://sketchfab.com/3d-models/indian-male-character-0baf0a4bbe314764a8d7b639e8f600ca)
+by Aashutosh Dabhade (https://sketchfab.com/adabhade17) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

@@ -124,13 +124,13 @@ export class MatchView {
     this.view.clear();
     const add = (actor, model, kind) => { model.root.visible = true; this.active.add(model); this.view.set(actor, { model, kind, clip: null, t0: 0 }); };
     for (const r of sim.runners) add(r, this.modelFor(r.player, battingTeam, 'batter', batterBody), r.id === sim.strikerP.id ? 'striker' : 'nonStriker');
-    add(sim.bowler, this.modelFor(sim.bowler.player, bowlingTeam, 'fielder'), 'bowler');
+    add(sim.bowler, this.modelFor(sim.bowler.player, bowlingTeam, 'fielder', 'fielder'), 'bowler');   // the fielder model, in this team's kit
     // In the nets it's just batter and bowler: no keeper, fielders or umpires.
     if (!sim.nets) {
       const keeper = this.modelFor(sim.keeper.player, bowlingTeam, 'keeper', 'keeper');   // the keeper model, in this team's kit
       keeper.setKeeperHelmet(sim.kind === 'spin');
       add(sim.keeper, keeper, 'keeper');
-      for (const f of sim.fielders) add(f, this.modelFor(f.player, bowlingTeam, 'fielder'), 'fielder');
+      for (const f of sim.fielders) add(f, this.modelFor(f.player, bowlingTeam, 'fielder', 'fielder'), 'fielder');
       add(sim.umpire, this.modelFor({ id: 'ump1', name: 'Umpire' }, null, 'umpire'), 'umpire');
       add(sim.legUmpire, this.modelFor({ id: 'ump2', name: 'Umpire' }, null, 'umpire'), 'legUmpire');
     }
