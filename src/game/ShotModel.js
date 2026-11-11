@@ -30,6 +30,33 @@ export const SHOTS = {
 
 export const SHOT_IDS = Object.keys(SHOTS);
 
+// Where each shot's bat can get to at contact, measured from the swing animations: an ellipse in line x (m from the
+// batter's guard, + off side) and height y (m), centre c and radii r. Straight-bat shots also reach anything lower
+// down within most of that width (`low`): they can get the bat down on a full ball. Cross-bat shots (cut, pull,
+// hook) can't get down to a low ball, a sweep can't get up to a high one, and nothing reaches far down the wrong side.
+export const REACH = {
+  defend:        { c: [-0.05, 0.7],  r: [0.8, 0.65],  low: true },
+  defendBack:    { c: [0.05, 0.8],   r: [1.0, 0.75],  low: true },
+  straightDrive: { c: [0, 0.65],     r: [0.9, 0.75],  low: true },
+  coverDrive:    { c: [0.1, 0.65],   r: [0.85, 0.55], low: true },
+  flick:         { c: [-0.1, 0.75],  r: [0.85, 0.7],  low: true },
+  punch:         { c: [0.15, 0.8],   r: [1.0, 0.7],   low: true },
+  cut:           { c: [0.45, 1.05],  r: [0.95, 0.65], low: false },
+  pull:          { c: [0.2, 1.3],    r: [1.05, 0.8],  low: false },
+  hook:          { c: [0.15, 1.4],   r: [1.0, 0.8],   low: false },
+  lofted:        { c: [0, 0.6],      r: [0.95, 0.8],  low: true },
+  sweep:         { c: [0.2, 0.55],   r: [0.8, 0.65],  low: true },
+};
+
+/** Can the bat get to a ball at line x (from the guard) and height y with this shot? */
+export function canReach(shotId, foot, x, y) {
+  const R = REACH[shotId === 'defend' && foot === 'back' ? 'defendBack' : shotId];
+  if (!R) return true;
+  const dx = (x - R.c[0]) / R.r[0], dy = (y - R.c[1]) / R.r[1];
+  if (dx * dx + dy * dy <= 1) return true;
+  return R.low && y < R.c[1] && y >= 0 && Math.abs(dx) <= 0.85;
+}
+
 /** Contact z for a shot (front-foot shots meet the ball further down the pitch). */
 export function contactZ(shotId, foot, stepOut = false) {
   if (stepOut) return 7.15;
@@ -148,9 +175,8 @@ export function resolveShot(o) {
   const L = o.stepOut ? (plan.bounceLen == null ? -0.5 : plan.bounceLen - 2.2) : (ball.bouncedBefore ? plan.bounceLen : -0.5);
   const x = ball.p.x - (o.guard || 0);   // line relative to the batter's guard
   const y = ball.p.y;
-  const legReach = ['flick', 'pull', 'hook', 'sweep'].includes(shotId) ? 0.7 : 0.5;
-  const reachHi = shotId === 'cut' ? 1.4 : shotId === 'defend' ? 0.9 : 1.2;
-  if (x < BATTER_X - legReach || x > reachHi || y > 2.3) {
+  // The bat has to get to the ball: a shot to a ball outside where its swing can reach is a miss.
+  if (!canReach(shotId, o.foot, x, y)) {
     out.reason = 'Out of reach';
     return out;
   }

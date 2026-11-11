@@ -1,7 +1,7 @@
 // Computer batting: read the delivery (imperfectly), pick a shot that suits it and the
 // match situation, pick a gap, and decide when to run. Simple, readable rules.
 
-import { SHOTS, suitability, contactZ, BATTER_X } from '../game/ShotModel.js';
+import { SHOTS, suitability, contactZ, BATTER_X, canReach } from '../game/ShotModel.js';
 import { battingStyleMods } from '../game/PlayerAttributes.js';
 import { PITCH, fieldAngle } from '../game/BallPhysics.js';
 import { clamp } from '../utils/Random.js';
@@ -77,6 +77,8 @@ export function chooseShot({ batter, plan, situation, fielders = [], ballsFaced 
     const at = sh.foot === 'back' ? back : front;
     const s = suitability(id, readL, at.x, at.y, batter, plan.kind);
     let ev = s * EXP_RUNS[id] * (0.7 + intent * 0.6) - W * P_OUT[id] * (1 + 3 * (1 - s));
+    // Not a shot the bat can get to this ball with (as the batter reads it).
+    if (!canReach(id, sh.foot === 'auto' ? (readL > 6.5 ? 'back' : 'front') : sh.foot, at.x, at.y)) ev -= 6;
     if (id === 'defend') ev += thinksHitting ? 0.25 : 0;
     ev += rng.gauss(0, 0.18);
     if (!best || ev > best.score) best = { id, score: ev, s };

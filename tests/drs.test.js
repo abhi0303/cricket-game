@@ -160,7 +160,8 @@ test('fielders mostly take the ball on their feet, dive only when they must, and
 
 test('run-outs: the throw is taken in the gloves first, then the stumps are broken with the ball in hand', () => {
   let taken = 0, direct = 0, outs = 0;
-  for (let seed = 1; seed <= 10; seed++) {
+  // About one run-out every three or four innings: play matches until a handful have happened.
+  for (let seed = 1; seed <= 30 && outs < 5; seed++) {
     const rng = new RNG(70 + seed);
     const a = generateCpuTeam(rng, { difficulty: 'normal' }), b = generateCpuTeam(rng, { difficulty: 'normal', avoidName: a.name });
     const e = new MatchEngine({ teams: [a, b], config: { overs: 20 }, toss: { winner: a.id, decision: 'bat' } });

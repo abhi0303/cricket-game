@@ -1,0 +1,194 @@
+<!doctype html>
+<!--
+  Pitch texture generator. Open this page in a browser (from a local server at the repo root) to see the pitch
+  surface and download it; the game loads assets/textures/pitch.jpg (colour) and pitch_bump.jpg (relief).
+  The strip is 3.66 m across (x, image width) by 24 m long (z, image height), in stadium coordinates: the two ends
+  are point-symmetric because the game turns the delivery round each over (right-arm bowlers from both ends).
+  Creases are painted on by the game, not here.
+-->
+<meta charset="utf-8">
+<title>Pitch texture</title>
+<style>
+  body { background: #1c1f24; color: #cfd6e0; font: 14px system-ui, sans-serif; margin: 12px; }
+  canvas { height: 88vh; margin-right: 10px; image-rendering: auto; }
+  a { color: #ffc94a; margin-right: 12px; }
+</style>
+<p>Pitch texture · <a id="dlc" download="pitch.jpg">Download colour</a><a id="dlb" download="pitch_bump.jpg">Download bump</a><span id="info"></span></p>
+<canvas id="c"></canvas><canvas id="b"></canvas>
+<script type="module">
+const WM = 3.66, LM = 24;
+
+// ------------------------------------------------------------------ noise
+function hash2(i, j, s) {
+  let h = Math.imul(i, 374761393) ^ Math.imul(j, 668265263) ^ Math.imul(s, 1442695041);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+function vnoise(x, y, s) {
+  const i = Math.floor(x), j = Math.floor(y), fx = x - i, fy = y - j;
+  const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+  const a = hash2(i, j, s), b = hash2(i + 1, j, s), c = hash2(i, j + 1, s), d = hash2(i + 1, j + 1, s);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+function fbm(x, y, s, oct = 4) {
+  let f = 0, amp = 0.5, fr = 1, norm = 0;
+  for (let o = 0; o < oct; o++) { f += amp * vnoise(x * fr, y * fr, s + o * 31); norm += amp; fr *= 2.03; amp *= 0.5; }
+  return f / norm;
+}
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const smooth = (a, b, v) => { const t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const mix = (a, b, t) => a + (b - a) * t;
+
+/**
+ * Distance (metres) from (x, z) to the nearest crack of a Voronoi crack network with cells of `cell` metres.
+ * Some cell walls are left out (`drop`), so the network is open like real cracking rather than a perfect mesh.
+ */
+function crackDist(x, z, cell, seed, drop) {
+  const gx = x / cell, gz = z / cell, ix = Math.floor(gx), iz = Math.floor(gz);
+  let d1 = 9, d2 = 9, id1 = 0, id2 = 0, p1x = 0, p1z = 0, p2x = 0, p2z = 0;
+  for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+    const cx = ix + i, cz = iz + j;
+    const px = cx + 0.12 + 0.76 * hash2(cx, cz, seed), pz = cz + 0.12 + 0.76 * hash2(cx, cz, seed + 7);
+    const d = Math.hypot(gx - px, gz - pz);
+    const id = (cx * 73856093) ^ (cz * 19349663);
+    if (d < d1) { d2 = d1; id2 = id1; p2x = p1x; p2z = p1z; d1 = d; id1 = id; p1x = px; p1z = pz; }
+    else if (d < d2) { d2 = d; id2 = id; p2x = px; p2z = pz; }
+  }
+  const a = Math.min(id1, id2), b = Math.max(id1, id2);
+  const wall = hash2(a, b, seed + 3);
+  if (wall < drop) return { d: 9, w: 0 };
+  // distance to the bisector between the two nearest seeds; each wall gets its own width
+  const mx = (p1x + p2x) / 2, mz = (p1z + p2z) / 2, nx = p2x - p1x, nz = p2z - p1z, nl = Math.hypot(nx, nz) || 1;
+  return { d: Math.abs(((gx - mx) * nx + (gz - mz) * nz) / nl) * cell, w: 0.45 + 1.1 * hash2(b, a, seed + 5) };
+}
+
+// ------------------------------------------------------------------ the strip
+export function makePitch({ W = 640, H = 4200, seed = 11 } = {}) {
+  const kx = W / WM, kz = H / LM, px = 1 / kx;    // px: metres per pixel across
+  const col = new Uint8ClampedArray(W * H * 4), bump = new Uint8ClampedArray(W * H * 4);
+  const rnd = (() => { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; })();
+
+  // Marks: the bowlers' landing and follow-through, the batters' guard and the rough. Defined for the -z end
+  // (bowler) / +z end (batter) and mirrored through the centre for the other end.
+  const marks = [];
+  const both = (m) => { marks.push(m); marks.push({ ...m, x: -m.x, z: -m.z, rot: m.rot }); };
+  // bowler's front-foot landing at the popping crease, just wide of the stumps, and back foot by the return crease
+  for (let i = 0; i < 26; i++) both({ x: 0.18 + rnd() * 0.42, z: -8.55 - rnd() * 0.75, rx: 0.05 + rnd() * 0.05, rz: 0.08 + rnd() * 0.08, rot: (rnd() - 0.5) * 0.8, depth: 0.55 + rnd() * 0.4 });
+  for (let i = 0; i < 16; i++) both({ x: 0.45 + rnd() * 0.45, z: -9.7 - rnd() * 1.0, rx: 0.05 + rnd() * 0.04, rz: 0.07 + rnd() * 0.06, rot: (rnd() - 0.5) * 0.8, depth: 0.4 + rnd() * 0.35 });
+  // follow-through off to the bowler's left: the rough outside the right-hander's leg stump at the other end
+  for (let i = 0; i < 70; i++) { const u = rnd(); both({ x: 0.45 + u * 0.75 + (rnd() - 0.5) * 0.25, z: -7.8 + u * 4.2 + (rnd() - 0.5) * 0.6, rx: 0.03 + rnd() * 0.04, rz: 0.04 + rnd() * 0.05, rot: (rnd() - 0.5) * 1.2, depth: 0.35 + rnd() * 0.45 }); }
+  // the batter's feet around guard (middle and leg) at the popping crease
+  for (let i = 0; i < 34; i++) both({ x: -0.55 + rnd() * 0.7, z: 8.45 + rnd() * 1.1, rx: 0.04 + rnd() * 0.05, rz: 0.06 + rnd() * 0.07, rot: (rnd() - 0.5) * 1.4, depth: 0.3 + rnd() * 0.35 });
+  // spike marks all over the ends
+  for (let i = 0; i < 140; i++) { const e = rnd() < 0.5 ? 1 : -1; marks.push({ x: (rnd() - 0.5) * 2.6, z: e * (6.5 + rnd() * 5), rx: 0.008 + rnd() * 0.01, rz: 0.008 + rnd() * 0.012, rot: rnd() * 3, depth: 0.5 + rnd() * 0.4 }); }
+  // bucket the marks by row for speed
+  const rowMarks = Array.from({ length: Math.ceil(LM / 0.5) }, () => []);
+  for (const m of marks) {
+    const r = Math.max(m.rx, m.rz) * 1.6;
+    for (let b = Math.floor((m.z - r + 12) / 0.5); b <= Math.floor((m.z + r + 12) / 0.5); b++) if (rowMarks[b]) rowMarks[b].push(m);
+  }
+
+  for (let yy = 0; yy < H; yy++) {
+    const z = (yy + 0.5) / kz - LM / 2, az = Math.abs(z);
+    const near = rowMarks[Math.floor((z + 12) / 0.5)] || [];
+    for (let xx = 0; xx < W; xx++) {
+      const x = (xx + 0.5) / kx - WM / 2, ax = Math.abs(x);
+      // ---- soil: light khaki with broad patches, finer mottling and grain
+      const broad = fbm(x * 0.7 + 3, z * 0.22, seed) - 0.5;
+      const mottle = fbm(x * 7, z * 7, seed + 100, 3) - 0.5;
+      const grain = hash2(xx, yy, seed + 5) - 0.5;
+      let r = 207 + broad * 26 + mottle * 16 + grain * 13;
+      let g = 192 + broad * 24 + mottle * 14 + grain * 12;
+      let b = 152 + broad * 18 + mottle * 10 + grain * 11;
+      let h = 0.5 + mottle * 0.3 + grain * 0.18;   // relief, 0..1
+
+      // ---- worn, dusty ends (run-ups, creases) and a slightly greyer, polished middle
+      const ends = smooth(7.6, 9.2, az);
+      r = mix(r, 219 + grain * 10, ends * 0.45); g = mix(g, 205 + grain * 10, ends * 0.45); b = mix(b, 170 + grain * 8, ends * 0.45);
+      const shine = (1 - ends) * (1 - smooth(0.9, 1.5, ax)) * 0.12;
+      r = mix(r, 214, shine); g = mix(g, 203, shine); b = mix(b, 168, shine);
+
+      // ---- grass: a thin straw-coloured cover in fine lengthwise streaks, greener and thicker towards the edges,
+      // worn away where the batters and bowlers stand
+      const streak = vnoise(x * 55 + 2, z * 2.2, seed + 200) * 0.6 + vnoise(x * 140, z * 6, seed + 210) * 0.4;
+      const patch = fbm(x * 2.5, z * 0.9, seed + 300, 3);
+      const edge = smooth(1.2, 1.72, ax);
+      let grass = clamp((0.16 + patch * 0.32) * (1 - ends * 0.85) + edge * 0.85, 0, 1) * (0.55 + streak * 0.75);
+      grass = clamp(grass, 0, 1);
+      const gr = mix(188, 142, edge), gg = mix(178, 150, edge), gb = mix(122, 92, edge);
+      r = mix(r, gr + grain * 10, grass * 0.62); g = mix(g, gg + grain * 10, grass * 0.62); b = mix(b, gb + grain * 8, grass * 0.62);
+      h += grass * 0.12 * streak;
+
+      // ---- cracks: a broad network of main cracks and a finer one, wandering (domain-warped), more open in the
+      // bare middle of the pitch and closed up under the grass at the edges
+      const wx = x + (fbm(x * 4, z * 4, seed + 400, 3) - 0.5) * 0.09, wz = z + (fbm(x * 4 + 9, z * 4, seed + 410, 3) - 0.5) * 0.09;
+      // patchy: some stretches are cracked right across, others barely at all
+      const patchy = smooth(0.38, 0.68, fbm(x * 1.1 + 5, z * 0.42, seed + 500, 3));
+      const density = (1 - edge) * (0.12 + 0.88 * patchy) * (1 - smooth(10.6, 11.6, az));
+      const fineDensity = (1 - edge) * smooth(0.5, 0.75, fbm(x * 1.6, z * 0.8, seed + 510, 3)) * (1 - ends * 0.6);
+      const M = crackDist(wx, wz, 0.34, seed + 600, 0.3);
+      const F = crackDist(wx * 1.02 + 0.3, wz, 0.09, seed + 700, 0.55);
+      const ink = (d, halfW, k) => { const hw = Math.max(halfW, px * 0.55); return clamp(1 - d / hw, 0, 1) * Math.min(1, halfW / hw) * k; };
+      const crack = clamp(Math.max(ink(M.d, 0.0022 * M.w, density), ink(F.d, 0.0009 * F.w, 0.5 * fineDensity)), 0, 1);
+      const lip = clamp(1 - Math.abs(M.d - px * 1.7) / (px * 1.1), 0, 1) * density * M.w * 0.3;   // dry, lighter edge
+      const dMain = M.d;
+      r = mix(r, 238, lip * 0.35); g = mix(g, 226, lip * 0.35); b = mix(b, 190, lip * 0.35);
+      r = mix(r, 96, crack); g = mix(g, 78, crack); b = mix(b, 56, crack);
+      h = mix(h, 0.08, crack) + lip * 0.06;
+
+      // ---- footmarks, follow-through scuffs and spike marks: darker, roughed-up soil with dusty rims
+      for (const m of near) {
+        const dx = x - m.x, dz = z - m.z, c = Math.cos(m.rot), s = Math.sin(m.rot);
+        const u = (dx * c - dz * s) / m.rx, v = (dx * s + dz * c) / m.rz, q = u * u + v * v;
+        if (q > 2.6) continue;
+        // a scuffed-up patch: the outline breaks up with noise, inside is dug soil in crumbs and shadows,
+        // and kicked-out dust lies around it
+        const n = vnoise(x * 60 + m.x * 9, z * 60, seed + 800) * 0.65 + vnoise(x * 190, z * 190, seed + 810) * 0.35;
+        const inside = q + (n - 0.5) * 0.9;
+        const crumb = hash2(xx, yy, seed + 820);
+        if (inside < 1) {
+          const k = Math.min(1, m.depth * 1.25) * (inside > 0.8 ? (1 - inside) / 0.2 : 1);
+          const tone = crumb < 0.22 ? [118, 96, 70] : crumb > 0.8 ? [226, 210, 176] : [178, 152, 114];
+          r = mix(r, tone[0], k * 0.85); g = mix(g, tone[1], k * 0.85); b = mix(b, tone[2], k * 0.85);
+          h = mix(h, 0.2 + crumb * 0.5, k);
+        } else if (inside < 1.9) {
+          const k = (1 - (inside - 1) / 0.9) * m.depth * 0.5 * (crumb > 0.55 ? 1 : 0.3);
+          r = mix(r, 230, k); g = mix(g, 217, k); b = mix(b, 184, k);
+          h += k * 0.12;
+        }
+      }
+
+      // ---- stump holes
+      for (const sz of [-10.06, 10.06]) for (const sx of [-0.0953, 0, 0.0953]) {
+        const d = Math.hypot(x - sx, z - sz);
+        if (d < 0.03) { const k = 1 - d / 0.03; r = mix(r, 70, k); g = mix(g, 56, k); b = mix(b, 40, k); h = mix(h, 0, k); }
+      }
+
+      const o = (yy * W + xx) * 4;
+      col[o] = r; col[o + 1] = g; col[o + 2] = b; col[o + 3] = 255;
+      const hv = clamp(h, 0, 1) * 255;
+      bump[o] = hv; bump[o + 1] = hv; bump[o + 2] = hv; bump[o + 3] = 255;
+    }
+  }
+  return { W, H, col, bump };
+}
+
+function toCanvas(el, W, H, data) {
+  el.width = W; el.height = H;
+  const ctx = el.getContext('2d');
+  ctx.putImageData(new ImageData(data, W, H), 0, 0);
+  return el;
+}
+
+const t0 = performance.now();
+const P = makePitch();
+const c = toCanvas(document.getElementById('c'), P.W, P.H, P.col);
+const b = toCanvas(document.getElementById('b'), P.W, P.H, P.bump);
+// the relief only needs half the resolution
+const bh = document.createElement('canvas'); bh.width = P.W / 2; bh.height = P.H / 2;
+bh.getContext('2d').drawImage(b, 0, 0, bh.width, bh.height);
+document.getElementById('dlc').href = c.toDataURL('image/jpeg', 0.86);
+document.getElementById('dlb').href = bh.toDataURL('image/jpeg', 0.8);
+document.getElementById('info').textContent = `${P.W}×${P.H} in ${((performance.now() - t0) / 1000).toFixed(1)} s`;
+window.__pitch = { colour: () => c.toDataURL('image/jpeg', 0.86), bump: () => bh.toDataURL('image/jpeg', 0.8), done: true };
+</script>

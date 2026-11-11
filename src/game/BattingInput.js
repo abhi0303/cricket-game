@@ -1,6 +1,8 @@
 // The human batter's controls, shared by matches and net practice: move across the crease, aim,
 // play a shot and (in a match) call the runs.
 import { viewMirrored } from '../scene/CameraPoses.js';
+import { shotFromInput, BATTER_X, STANCE_Z } from './ShotModel.js';
+import { assistAim } from '../ai/BattingAI.js';
 
 export const SHOT_BUTTONS = ['defend', 'ground', 'lofted', 'advanced', 'leave'];
 
@@ -17,6 +19,19 @@ export function shotAxis(ax, battingView) {
   return { x: ax.x * m, y: ax.y * m };
 }
 
+/**
+ * Where a ground shot would go with the stick as it is: { deg, x, z } (field angle from the striker, 0 = straight,
+ * + off side), including the aim assist's nudge towards a gap, or null with the stick centred (the assist picks).
+ */
+export function aimPreview(sim, ax) {
+  if (Math.hypot(ax.x, ax.y) < 0.25) return null;
+  const s = shotFromInput('ground', ax.x, ax.y, { bowlerKind: sim.kind, lengthHint: sim.phase === 'flight' ? sim.plan?.bounceLen ?? null : null });
+  let deg = s.dirDeg;
+  if (sim.D?.aimAssist && Math.abs(ax.x) >= 0.2) deg = assistAim(s.shotId, deg, sim.fielders.map(f => ({ x: f.x, z: f.z })), sim.D.aimAssist);
+  return { deg, x: BATTER_X + (sim.guard || 0), z: STANCE_Z };
+}
+
+/** Plays the human batter's input for this frame; returns the aim to show on the field chart (or null). */
 export function applyBattingInput(app, sim, dt, { running = true } = {}) {
   const input = app.input;
   // ← → move the batter across the crease, so they don't also swing the shot direction.
@@ -27,7 +42,7 @@ export function applyBattingInput(app, sim, dt, { running = true } = {}) {
   const move = (input.value('moveRight') - input.value('moveLeft')) * mirror;
   if (move) sim.moveGuard(move, dt);
   const aiming = (sim.phase === 'runup' || sim.phase === 'flight' || sim.phase === 'ready') && !sim.shot;
-  app.view.setShotArrow(ax.x, ax.y, aiming && Math.hypot(ax.x, ax.y) > 0.25);
+  const aim = aiming ? aimPreview(sim, ax) : null;
   if (sim.phase === 'flight' && !sim.shot) {
     for (const b of SHOT_BUTTONS) {
       if (input.pressed(b)) {
@@ -44,4 +59,5 @@ export function applyBattingInput(app, sim, dt, { running = true } = {}) {
   } else if (sim.sprint) sim.setSprint(false);
   const look = input.lookAxis();
   app.cameras.look = { x: look.x, y: look.y };
+  return aim;
 }

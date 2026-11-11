@@ -330,7 +330,7 @@ export const MatchSetup = {
         <label>Bowling aim marker ${sel('aimMarker', [['true', 'Show'], ['false', 'Hide (harder)']], String(s.aimMarker))}</label>
         <label>Graphics ${sel('quality', [['low', 'Low (fast)'], ['medium', 'Medium'], ['high', 'High (sharp shadows)']], s.quality)}</label>
         <label>Sound ${sel('sound', [['true', 'On'], ['false', 'Off']], String(s.sound))}</label>
-        <label>Button hints in play ${sel('hints', [['on', 'Show'], ['off', 'Hide']], s.hints === 'off' ? 'off' : 'on')}</label>
+        <label>On-screen control hints ${sel('hints', [['on', 'Show'], ['off', 'Hide']], s.hints === 'off' ? 'off' : 'on')}</label>
         <label class="slider">Volume <input type="range" id="volume" min="0" max="1" step="0.05" value="${s.volume}"></label>
       </div>
       ${v.ok ? '' : `<div class="validation bad"><h3>Your playing XI isn't legal yet</h3><p>${esc(v.errors[0].message)}</p><button class="btn small" data-go="strategy">Fix in Team Strategy</button></div>`}
@@ -454,7 +454,7 @@ const TUTORIAL = {
   batting: `<ol>
     <li>The camera sits behind you at the striker's end. Watch the bowler run in from the far end.</li>
     <li><b>Move across the crease:</b> hold <i>←</i> / <i>→</i> (D-pad left/right) before you play to shuffle towards that side of the screen. Across to off reaches wide balls and gets you in line, but your pads cover the stumps (LBW). Backing away to leg gives you room, but exposes the stumps.</li>
-    <li><b>Direction:</b> the stick (or WASD) works the way the picture looks. Push <i>towards the bowler</i> for front-foot shots and <i>away from him</i> for back-foot shots: up and down from behind the batter, down and up in the TV (bowler's end) view. Left and right follow the screen too. A green arrow shows your aim.</li>
+    <li><b>Direction:</b> the stick (or WASD) works the way the picture looks. Push <i>towards the bowler</i> for front-foot shots and <i>away from him</i> for back-foot shots: up and down from behind the batter, down and up in the TV (bowler's end) view. Left and right follow the screen too. A gold wedge on the field chart shows where the shot will go, so you can pick a gap.</li>
     <li><b>Pick a shot that suits the ball:</b> drive full balls (front foot), cut or pull short balls (back foot), sweep spinners, leave wide ones. A white ring shows where the ball pitched.</li>
     <li><b>Timing:</b> press the shot button just before the ball reaches you. The timing bar shows Early / Good / Perfect / Late. Perfect timing doesn't guarantee a six — the shot, the line and length, your player's skill and the field all matter.</li>
     <li>Hold <b>power</b> for extra distance (riskier), hold <b>precision</b> for a wider timing window and fewer edges.</li>
@@ -495,6 +495,7 @@ export const Controls = {
         </tbody></table>
         <div class="tutorial">${TUTORIAL[s.tab === 'between' ? 'menus' : s.tab === 'menu' ? 'menus' : s.tab] || ''}</div>
       </div>
+      <div class="hint-toggle"><span>On-screen control hints during play</span>${[['on', 'Show'], ['off', 'Hide']].map(([v, l]) => `<button class="chip ${(app.settings.hints === 'off' ? 'off' : 'on') === v ? 'sel' : ''}" data-hints="${v}">${l}</button>`).join('')}</div>
       <div class="actions"><button class="btn" data-act="reset">Reset to defaults</button><button class="btn ghost" data-act="back">Back</button></div>
     </div>`;
   },
@@ -503,6 +504,8 @@ export const Controls = {
     root.addEventListener('click', e => {
       const tab = e.target.closest('[data-tab]');
       if (tab) { s.tab = tab.dataset.tab; s.listening = null; app.render(); return; }
+      const hints = e.target.closest('[data-hints]');
+      if (hints) { app.settings.hints = hints.dataset.hints; app.saveSettings(); toast(`Control hints ${hints.dataset.hints === 'off' ? 'hidden' : 'shown'} in play`); app.render(); return; }
       const bind = e.target.closest('[data-bind]');
       if (bind) {
         const action = bind.dataset.bind, dev = bind.dataset.dev;

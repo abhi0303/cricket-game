@@ -246,11 +246,11 @@ export class MatchController {
   handleControls(dt) {
     const sim = this.sim, input = this.input;
     if (this.userBatting) {
-      if (!this.humanBall) { input.setProfile('batting'); this.app.view.setShotArrow(0, 0, false); return; }
-      applyBattingInput(this.app, sim, dt);
+      if (!this.humanBall) { input.setProfile('batting'); this.aim = null; return; }
+      this.aim = applyBattingInput(this.app, sim, dt);
     } else if (this.userBowling) {
       const ax = input.axis();
-      this.app.view.setShotArrow(0, 0, false);
+      this.aim = null;
       if (sim.awaitThrow) {
         input.setProfile('fielding');
         if (input.pressed('throwKeeper')) sim.inputThrow('striker');
@@ -648,7 +648,7 @@ export class MatchController {
     if (this.state === 'review') { hud.meter(null); hud.prompt(null); hud.hints(input, 'between', [['continue', 'Skip to the decision'], ['pause', 'Pause']]); return; }
     // Field chart turned to match the player's camera: from the bowler's end the striker is at the top.
     const view = this.userBatting ? this.app.cameras.battingView : this.app.cameras.bowlingView;
-    hud.fieldMap(sim, viewEnd(view) === 'bowler' ? 1 : -1, FIELD_PRESETS[sim.fieldPreset]?.label);
+    hud.fieldMap(sim, viewEnd(view) === 'bowler' ? 1 : -1, FIELD_PRESETS[sim.fieldPreset]?.label, this.state === 'ball' && this.userBatting ? this.aim : null);
     if (this.state === 'between' || this.state === 'replay') {
       hud.meter(null);
       hud.prompt(null);
@@ -674,11 +674,18 @@ export class MatchController {
     } else if (this.userBatting) {
       hud.meter(null);
       if (sim.phase === 'inplay') {
+        // Running: the call and its buttons go in the card on the right while the batters can run, then it goes.
+        hud.prompt(null);
         const rs = sim.runState;
-        hud.hints(input, 'batting', [['run', rs === 'running' ? 'Another run' : 'Run'], ['cancelRun', 'Send back'], ['sprint', 'Sprint'], ['dive', 'Dive']], 'Running');
         const running = rs === 'running' || rs === 'returning';
-        if ((sim.control.running === 'user' || sim.holdRuns) && sim.ball.state !== 'held') hud.prompt(`${rs === 'running' ? `Running… ${sim.runsCompleted} done` : rs === 'returning' ? 'Get back!' : sim.runsCompleted ? `${sim.runsCompleted} run${sim.runsCompleted > 1 ? 's' : ''} — go again?` : 'Run?'} ${this.glyphs(running ? [['sprint', 'Sprint'], ['dive', 'Dive'], ['cancelRun', 'Back']] : [['run', 'Run'], ['cancelRun', 'Back']], 'batting')}`);
-        else hud.prompt(null);
+        const canRun = (sim.control.running === 'user' || sim.holdRuns) && (running || sim.ball.state !== 'held');
+        if (!canRun) hud.hints(input, 'batting', []);
+        else {
+          const n = sim.runsCompleted;
+          const status = rs === 'running' ? `Running… ${n} done` : rs === 'returning' ? 'Get back!' : n ? `${n} run${n > 1 ? 's' : ''} — go again?` : 'Run?';
+          const items = running ? [['run', 'Another run'], ['cancelRun', 'Send back'], ['sprint', 'Sprint'], ['dive', 'Dive']] : [['run', 'Run'], ['cancelRun', 'Stay in']];
+          hud.hints(input, 'batting', items, 'Running', { status, urgent: rs === 'returning' });
+        }
       } else {
         hud.prompt(null);
         hud.hints(input, 'batting', SHOT_HINTS);

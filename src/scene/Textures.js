@@ -55,38 +55,19 @@ export function outfieldTexture({ size = 150, palette }) {
   return tex(c);
 }
 
-/** Pitch strip with wear at both ends and crease markings. Width 3.66 m, length 24 m. */
-export function pitchTexture({ base = '#c9b98a', worn = '#a58f62' } = {}) {
-  const W = 256, H = 1680;
-  const c = canvas(W, H);
-  const g = c.getContext('2d');
+/**
+ * Pitch strip, 3.66 m wide by 24 m long: the prepared surface from assets/textures/pitch.jpg (made by
+ * scripts/pitch-texture.html: dry khaki soil with a crack network, thin straw grass greener at the edges, worn
+ * ends, the bowlers' footmarks, the rough and spike marks) with the creases painted on top. Until the image has
+ * loaded a plain surface stands in.
+ */
+const PITCH_IMG = { W: 640, H: 4200, colour: 'assets/textures/pitch.jpg', bump: 'assets/textures/pitch_bump.jpg' };
+
+function paintCreases(g, W, H) {
   const L = 24, Wm = 3.66;
   const X = m => ((m + Wm / 2) / Wm) * W;
   const Z = m => ((m + L / 2) / L) * H;
-  g.fillStyle = base; g.fillRect(0, 0, W, H);
-  // grass tint along the middle
-  const grad = g.createLinearGradient(0, 0, W, 0);
-  grad.addColorStop(0, 'rgba(120,150,70,0.35)'); grad.addColorStop(0.18, 'rgba(120,150,70,0.0)');
-  grad.addColorStop(0.82, 'rgba(120,150,70,0.0)'); grad.addColorStop(1, 'rgba(120,150,70,0.35)');
-  g.fillStyle = grad; g.fillRect(0, 0, W, H);
-  // speckle
-  for (let i = 0; i < 9000; i++) {
-    g.fillStyle = Math.random() < 0.5 ? 'rgba(90,70,40,0.12)' : 'rgba(255,250,230,0.12)';
-    g.fillRect(Math.random() * W, Math.random() * H, 2, 2);
-  }
-  // footmarks / rough at both ends
-  for (const end of [-1, 1]) {
-    for (let i = 0; i < 70; i++) {
-      const zz = end * (8.2 + Math.random() * 2.6);
-      const xx = (Math.random() - 0.5) * 1.6;
-      g.fillStyle = `rgba(120,95,60,${0.12 + Math.random() * 0.15})`;
-      g.beginPath(); g.ellipse(X(xx), Z(zz), 6 + Math.random() * 6, 9 + Math.random() * 8, Math.random(), 0, Math.PI * 2); g.fill();
-    }
-    g.fillStyle = 'rgba(150,120,80,0.25)';
-    g.fillRect(X(-0.7), Z(end * 9.6) - 14, X(0.7) - X(-0.7), 28);
-  }
-  // creases
-  g.fillStyle = '#fbfbf5';
+  g.fillStyle = 'rgba(252,252,246,0.94)';
   const line = (x0, z0, x1, z1, w = 0.05) => {
     if (z0 === z1) g.fillRect(X(x0), Z(z0) - (w / L) * H / 2, X(x1) - X(x0), Math.max(2, (w / L) * H));
     else g.fillRect(X(x0) - (w / Wm) * W / 2, Z(Math.min(z0, z1)), Math.max(2, (w / Wm) * W), Z(Math.max(z0, z1)) - Z(Math.min(z0, z1)));
@@ -97,7 +78,30 @@ export function pitchTexture({ base = '#c9b98a', worn = '#a58f62' } = {}) {
     for (const x of [-1.32, 1.32]) line(x, s * 8.84, x, s * 11.3);   // return creases
     for (const x of [-0.89, 0.89]) line(x, s * 8.84, x, s * 8.2);    // wide guidelines
   }
-  return tex(c);
+}
+
+export function pitchTexture({ base = '#cdbb8e' } = {}) {
+  const { W, H } = PITCH_IMG;
+  const c = canvas(W, H);
+  const g = c.getContext('2d');
+  g.fillStyle = base; g.fillRect(0, 0, W, H);
+  const grad = g.createLinearGradient(0, 0, W, 0);
+  grad.addColorStop(0, 'rgba(140,150,92,0.6)'); grad.addColorStop(0.16, 'rgba(140,150,92,0)');
+  grad.addColorStop(0.84, 'rgba(140,150,92,0)'); grad.addColorStop(1, 'rgba(140,150,92,0.6)');
+  g.fillStyle = grad; g.fillRect(0, 0, W, H);
+  paintCreases(g, W, H);
+  const t = tex(c, { aniso: 16 });
+  const img = new Image();
+  img.onload = () => { g.drawImage(img, 0, 0, W, H); paintCreases(g, W, H); t.needsUpdate = true; };
+  img.src = PITCH_IMG.colour;
+  return t;
+}
+
+/** The pitch's relief (cracks, footmarks and spike marks sit lower) for the lighting. */
+export function pitchBumpTexture() {
+  const t = new THREE.TextureLoader().load(PITCH_IMG.bump);
+  t.anisotropy = 8;
+  return t;
 }
 
 const ADS = [

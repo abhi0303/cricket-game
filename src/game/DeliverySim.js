@@ -17,6 +17,11 @@ import { clamp } from '../utils/Random.js';
 import { lbwTrack, umpireSaysOut, worthAnAppeal } from './DRS.js';
 
 export const SWING_LEAD = 0.2;          // real seconds from pressing a shot to bat meeting ball
+// Where the bat meets the ball. The bat can only hit the ball where the ball is: a well-timed swing meets it at
+// the shot's contact point, an early one a little further out in front and a late one deeper, by this share of
+// the timing error (as distance along the ball's path), never more than `front` / `back` metres either way and
+// never behind `deepest` (just in front of the stumps).
+export const CONTACT = { share: 0.35, front: 0.3, back: 0.3, deepest: PHYSICS.pitch.half - 0.3 };
 const RUNUP = {
   pace: { dist: 16, speed: 7.2, stride: 0.42, startX: 1.6 },
   spin: { dist: 6, speed: 4.4, stride: 0.42, startX: 1.1 },
@@ -238,9 +243,55 @@ export class DeliverySim {
     // Back-date the press to when the key actually went down (age, real seconds), so timing
     // doesn't depend on the frame rate the input happened to be polled at.
     const pressT = Math.max(this.tRelease, this.t - clamp(age, 0, 0.05) * this.scale);
-    this.shot = { ...s, power, precision, pressT };
-    this.emit('shotStart', { shotId: s.shotId, foot: s.foot, lead: SWING_LEAD * this.deliveryScale, t: pressT });
+    const lead = SWING_LEAD * this.deliveryScale;
+    this.shot = { ...s, power, precision, pressT, contact: this.contactMoment(s, pressT + lead) };
+    this.planShot();
+    this.emit('shotStart', this.shotStartEvent(lead, pressT));
     return true;
+  }
+
+  /**
+   * Settle bat on ball as the shot is played. Where the ball will be when the bat gets there is known, so the
+   * outcome (middled, edged or beaten) is decided now and happens at the moment of contact; the batter's swing
+   * is aimed to match: the middle of the bat on the ball, an edge, or past it.
+   */
+  planShot() {
+    const sh = this.shot, { tc, t } = sh.contact;
+    const lead = SWING_LEAD * this.deliveryScale;
+    const tRel = t - this.tRelease;
+    const s = this.plan.path.at(tRel);
+    const bouncedBefore = !!this.plan.bounce && this.plan.bounce.t <= tRel;
+    const user = this.control.bat === 'user';
+    const ctx = user
+      ? { windowMult: this.D.userWindow, edgeMult: this.D.userEdge, power: sh.power, precision: sh.precision }
+      : { windowMult: 1, edgeMult: (this.vsUser ? this.D.cpuBatEdge : 1) * (this.testMatch ? TEST_BATTING.edgeMult : 1), power: sh.power, precision: sh.precision };
+    sh.outcome = resolveShot({
+      shotId: sh.shotId, dirDeg: sh.dirDeg, foot: sh.foot, stepOut: sh.stepOut, guard: this.guard,
+      timingError: (sh.pressT + lead - tc) / this.deliveryScale, batter: this.strikerP, bowler: this.bowlerP, plan: this.plan,
+      ball: { p: s.p, v: s.v, bouncedBefore }, ctx, rng: this.rng,
+    });
+    return sh.outcome;
+  }
+
+  shotStartEvent(lead, pressT) {
+    const sh = this.shot, o = sh.outcome;
+    return { shotId: sh.shotId, foot: sh.foot, lead, t: pressT, tContact: sh.contact.t, stepOut: sh.stepOut, outcome: o ? { result: o.result, edgeType: o.edgeType, reason: o.reason } : null };
+  }
+
+  /**
+   * When the bat meets the ball for a shot whose swing reaches the hitting point at tHit (sim time):
+   * tc is when the ball arrives at the shot's contact point, t when the bat actually meets it (see CONTACT).
+   */
+  contactMoment(shot, tHit) {
+    const P = this.plan.path, zc = contactZ(shot.shotId, shot.foot, shot.stepOut);
+    const at = z => { const r = P.timeAtZ(z); return r == null ? null : this.tRelease + r; };
+    const tc = at(zc) ?? this.tRelease + 0.6;
+    let t = tc + (tHit - tc) * CONTACT.share;
+    const z = P.at(Math.max(0, t - this.tRelease)).p.z;
+    const zMin = zc - CONTACT.front, zMax = Math.min(zc + CONTACT.back, CONTACT.deepest);
+    if (z < zMin) t = at(zMin) ?? t;
+    else if (z > zMax) t = at(zMax) ?? t;
+    return { tc, t };
   }
 
   /**
@@ -433,8 +484,9 @@ export class DeliverySim {
     const err = sampleTimingError({ batter: this.strikerP, plan: this.plan, rng: this.rng, difficulty: this.difficulty, isCpuVsUser: this.vsUser }) * (this.testMatch ? TEST_BATTING.timing : 1);
     const lead = SWING_LEAD * this.deliveryScale;
     const pressT = Math.max(this.t, tc - lead + err * this.deliveryScale);
-    this.shot = { ...dec, pressT, cpuErr: err };
-    const start = () => this.emit('shotStart', { shotId: dec.shotId, foot: dec.foot, lead, stepOut: dec.stepOut });
+    this.shot = { ...dec, pressT, cpuErr: err, contact: this.contactMoment(dec, pressT + lead) };
+    this.planShot();
+    const start = () => this.emit('shotStart', this.shotStartEvent(lead, pressT));
     if (pressT <= this.t) start(); else this.schedule(pressT, start);
   }
 
@@ -451,15 +503,10 @@ export class DeliverySim {
         if (this.t >= this.tBallAtBatter) this.resolveNoContact('leave');
         return;
       }
-      const z = contactZ(this.shot.shotId, this.shot.foot, this.shot.stepOut);
-      const tcRel = this.plan.path.timeAtZ(z);
-      const tc = this.tRelease + (tcRel ?? 0.6);
-      const tHit = this.shot.pressT + lead;
-      const okG = 0.14 * this.deliveryScale * 1.4;
-      const errG = tHit - tc;
-      if (this.t >= Math.max(tc, Math.min(tHit, tc + okG)) || (errG < -okG && this.t >= tc)) {
-        this.resolveShot(errG / this.deliveryScale, Math.min(Math.max(tc, tHit), tc + okG));
-      }
+      // The shot is decided the moment the bat meets the ball (or swings through where it is), and a hit ball
+      // leaves from exactly there.
+      const { tc, t: tContact } = this.shot.contact;
+      if (this.t >= tContact) this.resolveShot((this.shot.pressT + lead - tc) / this.deliveryScale, tContact);
     } else if (!this.shot && this.t >= this.tBallAtBatter + 0.16 * this.deliveryScale) {
       this.resolveNoContact('noshot');
     }
@@ -481,15 +528,7 @@ export class DeliverySim {
     this.resolved = true;
     const tRel = tRes - this.tRelease;
     const s = this.plan.path.at(tRel);
-    const bouncedBefore = !!this.plan.bounce && this.plan.bounce.t <= tRel;
-    const ctx = this.control.bat === 'user'
-      ? { windowMult: this.D.userWindow, edgeMult: this.D.userEdge, power: this.shot.power, precision: this.shot.precision }
-      : { windowMult: 1, edgeMult: (this.vsUser ? this.D.cpuBatEdge : 1) * (this.testMatch ? TEST_BATTING.edgeMult : 1), power: this.shot.power, precision: this.shot.precision };
-    const res = resolveShot({
-      shotId: this.shot.shotId, dirDeg: this.shot.dirDeg, foot: this.shot.foot, stepOut: this.shot.stepOut, guard: this.guard,
-      timingError: errReal, batter: this.strikerP, bowler: this.bowlerP, plan: this.plan,
-      ball: { p: s.p, v: s.v, bouncedBefore }, ctx, rng: this.rng,
-    });
+    const res = this.shot.outcome || this.planShot();
     this.shotResult = res;
     this.timing = { label: res.timing, error: errReal, windows: res.windows, quality: res.quality, shot: SHOTS[res.shotId]?.label };
     this.emit('timing', this.timing);
@@ -519,8 +558,9 @@ export class DeliverySim {
       }
       const L = res.launch;
       const v = launchVelocity(L.speed, L.dir, L.elev);
+      this.contactAt = { ...s.p };   // where it came off the bat (the field chart draws the ball's track from here)
       this.emit('contact', { edge: res.result === 'edge', edgeType: res.edgeType, p: s.p, speed: L.speed, quality: res.quality });
-      this.startBatted({ ...s.p, y: Math.max(BALL_R, s.p.y) }, v, {});
+      this.startBatted({ ...s.p, y: Math.max(BALL_R, s.p.y) }, v, { startT: tRes });   // off the bat at the moment of contact
       this.desc = describeShot(res);
       return;
     }
@@ -673,13 +713,13 @@ export class DeliverySim {
   }
 
   // ------------------------------------------------------------------ ball in play
-  startBatted(p, v, { alreadyBounced = false, excludeId = null, penalty = 0 } = {}) {
+  startBatted(p, v, { alreadyBounced = false, excludeId = null, penalty = 0, startT = this.t } = {}) {
     this.phase = 'inplay';
     if (this.inplayStart == null) this.inplayStart = this.t;
     this.ball.state = 'batted';
     this.ball.holder = null;
     this.ball.heldAtEnd = null;
-    this.bat = simulateBattedBall(p, v, { startT: this.t, alreadyBounced });
+    this.bat = simulateBattedBall(p, v, { startT: Math.min(startT, this.t), alreadyBounced });
     // Bowler and keeper move to the stumps for a throw.
     this.keeper.target = { x: 0.35, z: PITCH.half + 0.7 };
     this.bowler.target = { x: 0.5, z: -PITCH.half - 0.6 };

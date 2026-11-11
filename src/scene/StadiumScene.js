@@ -2,7 +2,7 @@
 // floodlights, scoreboards and surroundings. Static parts are merged to keep draw calls low.
 import * as THREE from 'three';
 import { GeoBuilder, lambert } from './GeoBuilder.js';
-import { outfieldTexture, pitchTexture, adBoardTexture, ScoreboardTexture, glowTexture } from './Textures.js';
+import { outfieldTexture, pitchTexture, pitchBumpTexture, adBoardTexture, ScoreboardTexture, glowTexture } from './Textures.js';
 import { buildScenery } from './Environment.js';
 import { PITCH, BOUNDARY_RADIUS } from '../game/BallPhysics.js';
 import { NetArea } from './NetArea.js';
@@ -167,7 +167,7 @@ export class StadiumScene {
   buildPitch() {
     const geo = new THREE.PlaneGeometry(3.66, 24);
     geo.rotateX(-Math.PI / 2);
-    const pitch = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: pitchTexture() }));
+    const pitch = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: pitchTexture(), bumpMap: pitchBumpTexture(), bumpScale: 1.2 }));
     pitch.position.y = 0.012;
     pitch.receiveShadow = true;
     pitch.name = 'pitch';

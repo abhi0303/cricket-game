@@ -5,6 +5,7 @@
 import { BOUNDARY_RADIUS, PITCH } from '../game/BallPhysics.js';
 
 const INNER = 27.43;                 // fielding restriction circle (30 yards) around each set of stumps
+const AIM_SPREAD = 8;                // half-width of the aim wedge, degrees (about how far timing moves a shot)
 const PITCH_W = 3.05;
 
 /**
@@ -58,7 +59,9 @@ export class FieldMap {
 
   /**
    * o = { fielders: [{x,z}], keeper, bowler, batters: [{x,z}], ball: {x,z}|null, up: ±1,
-   *       fieldColor, batColor }
+   *       fieldColor, batColor,
+   *       aim: { deg, x, z } | null   the batter's aim: field angle (0 = straight, + off side) from (x, z),
+   *       trail: { from: {x,z}, to: {x,z} } | null   where the hit ball has gone }
    */
   draw(o) {
     const w = this.fit();
@@ -107,6 +110,36 @@ export class FieldMap {
     const [ox] = P(BOUNDARY_RADIUS * 0.8, 0), [lx] = P(-BOUNDARY_RADIUS * 0.8, 0);
     ctx.fillText('OFF', ox, c); ctx.fillText('LEG', lx, c);
 
+    // The batter's aim: a gold wedge from the striker to the rope, with the line the shot will take.
+    if (o.aim) {
+      const toRope = deg => {
+        const d = deg * Math.PI / 180, ux = Math.sin(d), uz = -Math.cos(d);
+        const b = o.aim.x * ux + o.aim.z * uz, cc = o.aim.x * o.aim.x + o.aim.z * o.aim.z - BOUNDARY_RADIUS * BOUNDARY_RADIUS;
+        const t = -b + Math.sqrt(Math.max(0, b * b - cc));
+        return P(o.aim.x + ux * t, o.aim.z + uz * t);
+      };
+      const [sx0, sy0] = P(o.aim.x, o.aim.z), [ex, ey] = toRope(o.aim.deg);
+      const [l1x, l1y] = toRope(o.aim.deg - AIM_SPREAD), [l2x, l2y] = toRope(o.aim.deg + AIM_SPREAD);
+      ctx.save();
+      const wg = ctx.createLinearGradient(sx0, sy0, ex, ey);
+      wg.addColorStop(0, 'rgba(255,201,74,0.6)'); wg.addColorStop(1, 'rgba(255,201,74,0.2)');
+      ctx.fillStyle = wg;
+      ctx.beginPath(); ctx.moveTo(sx0, sy0); ctx.lineTo(l1x, l1y); ctx.lineTo(l2x, l2y); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#ffc94a'; ctx.lineWidth = Math.max(2, w * 0.014); ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(sx0, sy0); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.beginPath(); ctx.arc(ex, ey, w * 0.022, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
+    // Where the hit ball has gone, from the bat.
+    if (o.trail) {
+      const [fx, fy] = P(o.trail.from.x, o.trail.from.z), [tx, ty] = P(o.trail.to.x, o.trail.to.z);
+      ctx.save();
+      ctx.setLineDash([w * 0.02, w * 0.014]);
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = Math.max(1.2, w * 0.008);
+      ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(tx, ty); ctx.stroke();
+      ctx.restore();
+    }
+
     const disc = (x, z, fill, stroke, rad = dot, lw = w * 0.007) => {
       const [px, py] = P(x, z);
       ctx.beginPath(); ctx.arc(px, py, rad, 0, Math.PI * 2);
@@ -118,5 +151,6 @@ export class FieldMap {
     if (o.bowler) disc(o.bowler.x, o.bowler.z, o.fieldColor, '#ffd166', dot * 0.85);
     for (const b of o.batters || []) disc(b.x, b.z, o.batColor, '#06d6a0', dot * 0.85);
     if (o.ball) disc(o.ball.x, o.ball.z, '#ffffff', '#b3121a', dot * 0.6, w * 0.01);
+    else if (o.trail) disc(o.trail.to.x, o.trail.to.z, '#ffffff', '#b3121a', dot * 0.6, w * 0.01);
   }
 }

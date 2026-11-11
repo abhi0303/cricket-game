@@ -34,15 +34,16 @@ export const DEFAULT_BINDINGS = {
     back: { keys: ['Escape', 'Backspace'], pad: [PAD.B] },
   },
   // Controller: the face buttons play the shots while the ball is coming and run the batters once it's
-  // in play (A ground, B lofted / send back, X precision / run, Y leave / dive); RT/LT sprint.
+  // in play (A ground, B lofted / send back, X precision / run, Y defend / dive); pressing the right stick
+  // (RS / R3) leaves the ball; RT/LT sprint.
   batting: {
     moveLeft: { keys: ['ArrowLeft'], pad: [PAD.LEFT] },
     moveRight: { keys: ['ArrowRight'], pad: [PAD.RIGHT] },
     ground: { keys: ['KeyK'], pad: [PAD.A] },
     lofted: { keys: ['KeyL'], pad: [PAD.B] },
     precision: { keys: ['KeyC'], pad: [PAD.X] },
-    leave: { keys: ['KeyU'], pad: [PAD.Y] },
-    defend: { keys: ['KeyJ'], pad: [PAD.RB] },
+    leave: { keys: ['KeyU'], pad: [PAD.RS] },
+    defend: { keys: ['KeyJ'], pad: [PAD.Y] },
     advanced: { keys: ['KeyI'], pad: [PAD.LB] },
     power: { keys: ['ShiftLeft', 'ShiftRight'], pad: [PAD.RT] },
     run: { keys: ['Space'], pad: [PAD.X] },
@@ -92,9 +93,10 @@ export const PROFILE_LABELS = { batting: 'Batting', bowling: 'Bowling', fielding
 export function cloneBindings(b = DEFAULT_BINDINGS) { return JSON.parse(JSON.stringify(b)); }
 
 // Saved bindings carry a layout version. Version 2 moved the batting shots and running onto the controller's
-// face buttons, so controller buttons saved under an older layout fall back to the new defaults (keys are kept).
-export const BINDINGS_VERSION = 2;
-const PAD_LAYOUT_CHANGED = { 2: ['batting'] };
+// face buttons, version 3 put the defensive shot on Y and the leave on the right stick, so controller buttons
+// saved under an older layout fall back to the new defaults (keys are kept).
+export const BINDINGS_VERSION = 3;
+const PAD_LAYOUT_CHANGED = { 2: ['batting'], 3: ['batting'] };
 
 /** Merge saved bindings over the defaults (ignores unknown actions). */
 export function mergeBindings(saved) {

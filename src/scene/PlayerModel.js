@@ -320,6 +320,34 @@ export class PlayerModel {
     return d;
   }
 
+  /** The blade (shoulder to toe) in root space at clip time t, with the current aim. */
+  bladeAt(clip, t = CONTACT_T) {
+    const c = getClip(clip), p = emptyPose();
+    c.sample(t, p);
+    if (!p.bat) return null;
+    if (this.batAim && this.batAim.clip === clip) this.aimBat(p, t);
+    this.apply(p);
+    const { h, y } = this.batAxisLocal;
+    const out = { top: h.clone().addScaledVector(y, -0.3), toe: h.clone().addScaledVector(y, -BAT_LEN) };
+    this.apply(this.pose);
+    return out;
+  }
+
+  /** Where a shot clip puts the middle of the bat at contact with no steering (root space). */
+  naturalSweet(clip) {
+    const c = getClip(clip), p = emptyPose();
+    const keep = this.batAim;
+    this.batAim = null;
+    c.sample(CONTACT_T, p);
+    if (!p.bat) { this.batAim = keep; return null; }
+    this.apply(p);
+    const { h, y } = this.batAxisLocal;
+    const out = h.clone().addScaledVector(y, -SWEET);
+    this.batAim = keep;
+    this.apply(this.pose);
+    return out;
+  }
+
   aimBat(p, t) {
     const a = this.batAim;
     if (!p.bat) return;

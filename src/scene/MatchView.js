@@ -21,6 +21,23 @@ const SHOT_CLIP = {
   punch: 'shot_punch', cut: 'shot_cut', pull: 'shot_pull', hook: 'shot_hook', lofted: 'shot_lofted', sweep: 'shot_sweep', leave: 'shot_leave',
 };
 
+/**
+ * Where the bat goes relative to the ball for a shot's outcome (batter's local space: +x towards the bowler, y up,
+ * +z off side). Edges put the ball on the inside (leg-side) or outside edge, a top edge has the bat just under it,
+ * and a miss takes the bat well clear: inside the line and over the top.
+ */
+export function batOffset(outcome) {
+  if (!outcome) return null;
+  if (outcome.result === 'miss') return [0, 0.13, -0.12];
+  if (outcome.result !== 'edge') return null;
+  switch (outcome.edgeType) {
+    case 'inside': return [0, 0, 0.05];
+    case 'outside-thin': return [0, 0.01, -0.058];
+    case 'top': return [0, -0.05, 0];
+    default: return [0, 0.01, -0.045];   // thick outside edge, leading edge
+  }
+}
+
 export class MatchView {
   constructor(stadium, { shadows = true, quality = 'medium' } = {}) {
     this.stadium = stadium;
@@ -70,13 +87,6 @@ export class MatchView {
     this.band.visible = false;
     this.frame.add(this.band);
 
-    // Shot direction arrow for the human batter
-    const arrowShape = new THREE.Shape();
-    arrowShape.moveTo(-0.06, 0); arrowShape.lineTo(0.06, 0); arrowShape.lineTo(0.06, 0.9); arrowShape.lineTo(0.16, 0.9);
-    arrowShape.lineTo(0, 1.15); arrowShape.lineTo(-0.16, 0.9); arrowShape.lineTo(-0.06, 0.9); arrowShape.closePath();
-    this.arrow = new THREE.Mesh(new THREE.ShapeGeometry(arrowShape).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#7ee0a1', transparent: true, opacity: 0.0, depthWrite: false }));
-    this.arrow.position.y = 0.03;
-    this.frame.add(this.arrow);
   }
 
   // ------------------------------------------------------------------ models
@@ -140,17 +150,23 @@ export class MatchView {
     if (!sim) return;
     switch (ev.type) {
       case 'shotStart': {
+        // The swing is timed so the bat reaches the ball exactly when the sim has it meet the ball (tContact),
+        // and aimed at where the ball is then: a hit ball leaves from the face of the bat.
         const lead = Math.max(0.05, ev.lead || 0.14);
+        const tContact = ev.tContact ?? ev.t + lead;
         let clip = SHOT_CLIP[ev.shotId] || 'shot_defend';
         if (ev.shotId === 'defend' && ev.foot === 'back') clip = 'shot_defendBack';
-        this.shotView = { clip, t0: ev.t, rate: ev.shotId === 'leave' ? 1.6 : CONTACT_T / lead, foot: ev.shotId === 'sweep' ? 'front' : ev.foot, stepOut: !!ev.stepOut };
-        this.aimStrikerShot(clip, ev.t + lead, !!ev.stepOut);
+        const rate = ev.shotId === 'leave' ? 1.6 : CONTACT_T / Math.max(0.03, tContact - ev.t);
+        // the blend in from the backlift finishes well before contact, however late the shot was played
+        const blend = Math.min(0.18, 0.4 * (tContact - ev.t) / (sim.deliveryScale || 1));
+        this.shotView = { clip, t0: ev.t, rate, blend, foot: ev.shotId === 'sweep' ? 'front' : ev.foot, stepOut: !!ev.stepOut, planned: !!ev.outcome };
+        this.aimStrikerShot(clip, tContact, !!ev.stepOut, ev.outcome, rate);
         break;
       }
       case 'timing': {
         // The sim has decided the contact: pull the bat off the line for a miss, onto an edge for an edge.
         const res = sim.shotResult, m = this.strikerModel();
-        if (!res || !m?.batAim) break;
+        if (!res || !m?.batAim || this.shotView?.planned) break;   // a planned shot was aimed for its outcome from the start
         const miss = res.result === 'miss' ? [0, 0.13, -0.1]
           : res.result === 'edge' ? (res.edgeType === 'inside' ? [0, 0, 0.045] : [0, 0.01, -0.045]) : null;
         if (miss) { m.batAim.miss = miss; m.batAim.missT = CONTACT_T - 0.02; }
@@ -184,16 +200,56 @@ export class MatchView {
     return STANCE_Z + (7.95 - STANCE_Z) * u * u * (3 - 2 * u);
   }
 
-  /** Steer the striker's swing so the middle of the bat meets the ball where it will be at contact. */
-  aimStrikerShot(clip, tContact, stepOut) {
+  /**
+   * Steer the striker's swing to where the ball will be at contact, for the outcome the sim has settled: the middle
+   * of the bat on the ball, the ball on an edge, or the bat going past it (beaten, or out of reach).
+   */
+  aimStrikerShot(clip, tContact, stepOut, outcome = null, rate = 1) {
     const m = this.strikerModel(), sim = this.sim;
     if (!m || clip === 'shot_leave' || sim.tRelease == null) { m?.setBatAim(null); return; }
-    const s = sim.plan.path.at(Math.max(0, tContact - sim.tRelease));
     const z = stepOut ? 7.95 : STANCE_Z;
     m.setPosition(BATTER_X + (sim.guard || 0), z, Math.PI / 2);
     m.root.updateMatrixWorld(true);
-    const ball = m.root.worldToLocal(this.frame.localToWorld(new THREE.Vector3(s.p.x, s.p.y, s.p.z)));
-    m.aimShot(clip, ball);
+    const ballAt = t => { const p = sim.plan.path.at(Math.max(0, t - sim.tRelease)).p; return m.root.worldToLocal(this.frame.localToWorld(new THREE.Vector3(p.x, p.y, p.z))); };
+    const ball = ballAt(tContact);
+    const k = 1 / (m.root.scale.x || 1);
+    if (outcome?.result !== 'miss') {
+      const off = batOffset(outcome);
+      if (off) ball.add(new THREE.Vector3(...off).multiplyScalar(k));
+      m.aimShot(clip, ball);
+      return;
+    }
+    // A miss: the bat goes past the ball and no part of the blade may touch it on the way. Beaten, the swing is aimed
+    // just inside and over the line of the ball; out of reach, it goes through on its own line. Either way the swing
+    // is checked either side of contact and pushed away from the ball until the whole blade is clear.
+    const nat = m.naturalSweet(clip);
+    const target = outcome.reason === 'Out of reach' && nat ? nat.clone() : ball.clone().add(new THREE.Vector3(...batOffset(outcome)).multiplyScalar(k));
+    let d = m.aimShot(clip, target);
+    const clear = 0.18 * k, seg = new THREE.Vector3(), q = new THREE.Vector3();
+    const closest = () => {
+      let worst = null;
+      for (let dc = -0.09; dc <= 0.0901; dc += 0.015) {
+        const b = m.bladeAt(clip, CONTACT_T + dc);
+        if (!b) break;
+        const p = ballAt(tContact + dc / rate);
+        seg.subVectors(b.toe, b.top);
+        const u = Math.max(0, Math.min(1, q.subVectors(p, b.top).dot(seg) / seg.lengthSq()));
+        const near = b.top.clone().addScaledVector(seg, u), dist = near.distanceTo(p);
+        if (dist < clear && (!worst || dist < worst.d)) worst = { d: dist, dir: dist > 1e-4 ? near.sub(p).normalize() : new THREE.Vector3(0, 1, 0) };
+      }
+      return worst;
+    };
+    let restarted = false;
+    for (let it = 0; it < 8; it++) {
+      const w = closest();
+      if (!w) break;
+      if (d && Math.hypot(d[0], d[1], d[2]) > 0.94 && nat && !restarted) {
+        // stretched as far as the swing goes: start again from its natural line
+        restarted = true;
+        target.copy(nat);
+      } else target.addScaledVector(w.dir, clear - w.d + 0.01 * k);
+      d = m.aimShot(clip, target);
+    }
   }
 
   // ------------------------------------------------------------------ per-frame sync
@@ -240,24 +296,10 @@ export class MatchView {
     this.holderModel = holder;
   }
 
-  setShotArrow(sx, sy, visible) {
-    const o = this.arrow.material;
-    o.opacity += ((visible ? 0.75 : 0) - o.opacity) * 0.25;
-    if (!visible && o.opacity < 0.02) { this.arrow.visible = false; return; }
-    this.arrow.visible = true;
-    // Stick x: + off side, y: + towards the bowler. Arrow points where the ball should go.
-    const ang = Math.atan2(sx, sy || 0.0001);
-    this.arrow.position.set(BATTER_X + (this.sim?.guard || 0) + 0.3, 0.03, PITCH.popping - 0.3);
-    // The arrow geometry points down the pitch (-z); rotating by -ang turns it towards +x (off side) for ang > 0.
-    this.arrow.rotation.y = -ang;
-    const len = 0.8 + Math.min(1, Math.hypot(sx, sy)) * 1.2;
-    this.arrow.scale.set(1, 1, len);
-  }
-
   syncActor(actor, v, t, dt) {
     const sim = this.sim;
     const m = v.model;
-    let clip = 'idle', ct = actor.actionT || 0, x = actor.x, z = actor.z, yaw = actor.yaw ?? 0;
+    let clip = 'idle', ct = actor.actionT || 0, x = actor.x, z = actor.z, yaw = actor.yaw ?? 0, blend;
     switch (v.kind) {
       case 'striker':
       case 'nonStriker': {
@@ -265,12 +307,14 @@ export class MatchView {
         const running = actor.action === 'run';
         const gx = BATTER_X + (sim.guard || 0);   // the striker's guard: where they have shuffled to across the crease
         let shuffle = false;
-        if (actor.action === 'out') { clip = 'walkOff'; yaw = Math.PI / 2 + 0.6; x = actor.x - (actor.actionT * 0.6); }
+        // Out: a striker who played a shot holds it for a moment (played on, edged behind) before walking off.
+        const hold = isStriker && this.shotView && this.shotView.clip !== 'shot_leave' && t - this.shotView.t0 < 2.4 ? 0.9 : 0;
+        if (actor.action === 'out' && actor.actionT >= hold) { clip = 'walkOff'; ct = actor.actionT - hold; yaw = Math.PI / 2 + 0.6; x = actor.x - (actor.actionT - hold) * 0.6; }
         else if (actor.action === 'celebrate') { clip = 'celebrateBat'; yaw = 0; }
         else if (actor.action === 'dive') { clip = 'diveBat'; ct = actor.actionT; yaw = actor.yaw ?? 0; }
         else if (running) { clip = 'runBat'; yaw = actor.yaw ?? 0; ct = t; }
         else if (isStriker && this.shotView && (sim.phase === 'flight' || t - this.shotView.t0 < 2.4) && Math.abs(actor.z - 9) < 2.2) {
-          clip = this.shotView.clip; ct = (t - this.shotView.t0) * this.shotView.rate; yaw = Math.PI / 2;
+          clip = this.shotView.clip; ct = (t - this.shotView.t0) * this.shotView.rate; yaw = Math.PI / 2; blend = this.shotView.blend;
           if (clip === 'shot_leave') ct = Math.min(ct, 1);
           // the clip moves the body itself (stride, weight transfer): keep the root where the shot started
           x = gx; z = this.shotAnchorZ(ct); shuffle = true;
@@ -331,7 +375,7 @@ export class MatchView {
     }
     if (v.kind === 'umpire') m.root.visible = !this.hideUmpire;
     m.setPosition(x, z, yaw);
-    m.play(clip, ct, Math.max(dt, 0.001));
+    m.play(clip, ct, Math.max(dt, 0.001), blend);
   }
 
   /** Which way a fielder faces for a take and (for a dive) which side he goes, worked out once per take. */

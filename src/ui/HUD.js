@@ -7,6 +7,8 @@ import { FIELD_PRESETS } from '../game/FieldPlacements.js';
 import { finalOversFor } from '../game/SkipSim.js';
 import { ordinal } from '../game/MatchEngine.js';
 import { FieldMap, fieldCounts, chartColor } from './FieldMap.js';
+import { projectionField } from '../game/NetsSim.js';
+import { BATTER_X, STANCE_Z } from '../game/ShotModel.js';
 
 const HUD_COMMON = `
       <div class="banner hidden"><div class="b-main"></div><div class="b-sub"></div></div>
@@ -27,6 +29,7 @@ export class HUD {
     if (nets) {
       root.innerHTML = `${HUD_TOP_LEFT}
       <div class="hud-right">
+        <div class="fieldmap"><canvas aria-label="Standard field"></canvas><div class="fm-caption"><span class="fm-name"></span><span class="fm-count"></span></div></div>
         <div class="nets-card"></div>
         <div class="hints"></div>
       </div>${HUD_COMMON}
@@ -40,7 +43,7 @@ export class HUD {
         <div class="nb-hist"><span class="tv-lab">LAST BALLS</span><span class="nb-chips"></span></div>
       </div>`;
       this.q = sel => root.querySelector(sel);
-      this.map = null;
+      this.map = new FieldMap(this.q('.fieldmap canvas'));
       return;
     }
     // Layout: pause + end caption top-left; field chart with the controls under it top-right;
@@ -132,17 +135,34 @@ export class HUD {
     if (lastBall) this.set('.hud-last', lastBall.speedKph ? `Last ball: ${esc(lastBall.deliveryType)} · ${lastBall.speedKph} km/h · ${esc(lastBall.lengthClass)}` : '');
   }
 
-  /** Field chart: o = { sim, up, preset } (see FieldMap). */
-  fieldMap(sim, up, presetLabel) {
+  /** Field chart (see FieldMap): the field, the batter's aim while a shot is lined up, and the ball's track once hit. */
+  fieldMap(sim, up, presetLabel, aim = null) {
     if (!sim || !this.map) return;
     const ball = sim.phase === 'inplay' || sim.phase === 'dead' ? sim.ball?.p : null;
+    const onField = ball && Math.hypot(ball.x, ball.z) < 70 ? ball : null;
     this.map.draw({
       fielders: sim.fielders, keeper: sim.keeper, bowler: sim.bowler, batters: sim.runners,
-      ball: ball && Math.hypot(ball.x, ball.z) < 70 ? ball : null, up,
+      ball: onField, up, aim,
+      trail: sim.contactAt && onField && sim.ball.state !== 'thrown' && !sim.ball.holder ? { from: sim.contactAt, to: onField } : null,
       fieldColor: chartColor(this.bowl?.primary, this.bowl?.secondary), batColor: chartColor(this.bat?.primary, this.bat?.secondary),
     });
     const n = fieldCounts(sim.fielders);
     this.set('.fm-name', esc(presetLabel || 'Field'));
+    this.set('.fm-count', `Off ${n.off} · Leg ${n.leg} · In ${n.inside}`);
+  }
+
+  /** Nets: the standard field the shots are scored against, the aim, and where the last shot would have gone. */
+  netsMap(sim, up, aim = null, trail = null) {
+    if (!sim || !this.map) return;
+    const field = projectionField(sim.kind);
+    const fielders = field.filter(f => !f.keeper && !f.bowler);
+    this.map.draw({
+      fielders, keeper: field.find(f => f.keeper), bowler: field.find(f => f.bowler),
+      batters: [{ x: BATTER_X + (sim.guard || 0), z: STANCE_Z }], ball: null, up, aim, trail,
+      fieldColor: '#3a86ff', batColor: chartColor(this.bat?.primary, this.bat?.secondary),
+    });
+    const n = fieldCounts(fielders);
+    this.set('.fm-name', sim.kind === 'spin' ? 'Standard field (spin)' : 'Standard field');
     this.set('.fm-count', `Off ${n.off} · Leg ${n.leg} · In ${n.inside}`);
   }
 
@@ -218,8 +238,14 @@ export class HUD {
   replayTag(text) { this.show('.replay-tag', !!text); if (text) this.set('.replay-tag', `<i></i>${esc(text)}`); }
   autoBadge(on) { this.show('.auto-badge', on); }
   /** Compact two-column button card under the field chart; `title` names the situation (e.g. BATTING). */
-  hints(input, profile, items, title = HINT_TITLE[profile] || '') {
-    this.set('.hints', items.length ? `${title ? `<div class="hints-head">${esc(title)}</div>` : ''}<div class="hints-grid">${hintBar(input, profile, items)}</div>` : '');
+  /**
+   * The controls card under the field chart: a title, an optional status line (e.g. the running call) and the
+   * buttons for what can be done right now. No items hides it.
+   */
+  hints(input, profile, items, title = HINT_TITLE[profile] || '', { status = '', urgent = false } = {}) {
+    const el = this.q('.hints');
+    if (el) { el.classList.toggle('live', !!status && items.length > 0); el.classList.toggle('urgent', urgent); }
+    this.set('.hints', items.length ? `${title ? `<div class="hints-head">${esc(title)}</div>` : ''}${status ? `<div class="hints-status">${esc(status)}</div>` : ''}<div class="hints-grid">${hintBar(input, profile, items)}</div>` : '');
   }
 }
 
@@ -393,7 +419,7 @@ export function settingsHTML(s, battingViews, bowlingViews, { nets = false } = {
       <label>Batting camera ${sel('battingCamera', battingViews.map(v => [v.id, v.label]), s.battingCamera)}</label>
       ${nets ? '' : `<label>Bowling camera ${sel('bowlingCamera', bowlingViews.map(v => [v.id, v.label]), s.bowlingCamera)}</label>`}
       <label>Sound ${sel('sound', onOff, String(s.sound))}</label>
-      <label>Button hints ${sel('hints', [['on', 'Show'], ['off', 'Hide']], s.hints === 'off' ? 'off' : 'on')}</label>
+      <label>On-screen control hints ${sel('hints', [['on', 'Show'], ['off', 'Hide']], s.hints === 'off' ? 'off' : 'on')}</label>
       <label class="slider">Volume <input type="range" id="volume" data-setting="volume" min="0" max="1" step="0.05" value="${s.volume}"></label>
       ${nets ? '' : `<label>Replays after big moments ${sel('autoReplay', onOff, String(s.autoReplay))}</label>
       <label>Bowling aim marker ${sel('aimMarker', [['true', 'Show'], ['false', 'Hide']], String(s.aimMarker))}</label>

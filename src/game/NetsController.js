@@ -14,7 +14,7 @@ import { RNG } from '../utils/Random.js';
 import { HUD, renderOverlay, hideOverlay, settingsHTML, netsPauseHTML, netsSummaryHTML } from '../ui/HUD.js';
 import { netsFormHTML, readNetsForm, netsFormClick, syncNetsFormLabels, refocusNetsForm } from '../ui/NetsForm.js';
 import { esc, toast, moveFocus, adjustFocused } from '../ui/UI.js';
-import { BATTING_VIEWS, BOWLING_VIEWS, normalizeBattingView, normalizeBowlingView } from '../scene/CameraPoses.js';
+import { BATTING_VIEWS, BOWLING_VIEWS, viewEnd, normalizeBattingView, normalizeBowlingView } from '../scene/CameraPoses.js';
 
 const NEXT_BALL_AFTER = 2.6;   // seconds before the bowler runs in again (Continue skips the wait)
 
@@ -114,7 +114,7 @@ export class NetsController {
     if (input.pressed('camera')) this.cycleCamera();
     const sim = this.sim, view = this.app.view, cams = this.app.cameras;
     if (this.state === 'ball') {
-      applyBattingInput(this.app, sim, dt, { running: false });
+      this.aim = applyBattingInput(this.app, sim, dt, { running: false });
       sim.update(dt);
       this.handleEvents();
       view.update(dt);
@@ -122,7 +122,7 @@ export class NetsController {
       if (sim.phase === 'dead' && !this.recorded) this.recordBall();
     } else if (this.state === 'between') {
       input.setProfile('between');
-      view.setShotArrow(0, 0, false);
+      this.aim = null;
       sim.update(dt);
       view.update(dt);
       cams.set('batting');
@@ -206,6 +206,10 @@ export class NetsController {
     const hud = this.hud, input = this.input, sim = this.sim;
     if (this.timingShownAt >= 0 && sim.t - this.timingShownAt > 2.2) { hud.timing(null); this.timingShownAt = -1; }
     this.app.hudRoot.classList.toggle('no-hints', this.settings.hints === 'off');
+    // the standard field the shots are scored against, with the aim and where the last shot would have gone
+    const p = sim.projection, from = sim.contactAt;
+    hud.netsMap(sim, viewEnd(this.app.cameras.battingView) === 'bowler' ? 1 : -1, this.state === 'ball' ? this.aim : null,
+      p?.to && from ? { from, to: p.to } : null);
     if (this.state === 'replay') hud.hints(input, 'between', [['continue', 'Skip replay']]);
     else if (this.state === 'between') hud.hints(input, 'between', [['continue', 'Next ball'], ['replay', 'Replay'], ['pause', 'Change bowler']]);
     else hud.hints(input, 'batting', [...SHOT_HINTS, ['pause', 'Change bowler']]);

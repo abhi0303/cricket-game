@@ -333,10 +333,10 @@ table.card tfoot td { text-align: left; }
   .tvbar { grid-template-columns: minmax(120px, 1fr) 1.3fr; }
   .tvbar > .tv-col + .tv-col { display: none; }
   .hud-right { width: 130px; }
-  .hints, .fm-caption { display: none; }
+  .hints:not(.live), .fm-caption { display: none; }
   .hud-end { display: none; }
 }
-@media (max-height: 620px) { .hints { display: none; } }
+@media (max-height: 620px) { .hints:not(.live) { display: none; } }   /* the running call still shows */
 
 /* ---------------------------------------------------------- net practice */
 .nets-setup h1 small { display: block; margin: 4px 0 0; }
@@ -522,6 +522,16 @@ table.sc-tab { width: 100%; border-collapse: collapse; margin-top: 8px; font-siz
 .hints .hint { background: none; border: 0; padding: 1px 0; gap: 5px; font: 600 11.5px var(--body); color: #dbe5fa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hints .glyph { transform: scale(0.82); transform-origin: left center; margin-right: -4px; }
 .hints .glyph + .glyph { margin-left: -2px; }
-.hud.no-hints .hints { display: none; }
+.hud.no-hints .hints:not(.live) { display: none; }
+.hud.no-hints .hints.live .hints-grid { display: none; }   /* hints off: the running call stays, the buttons go */
 .hints .hint.wide { grid-column: 1 / -1; }
+.hints-status { font: 700 14px var(--head); letter-spacing: 0.5px; color: #fff; padding: 0 2px 6px; }
+.hints.live { border-color: rgba(255, 201, 74, 0.55); box-shadow: 0 0 0 1px rgba(255, 201, 74, 0.18), 0 8px 24px rgba(0, 0, 0, 0.35); }
+.hints.live.urgent { border-color: rgba(255, 107, 91, 0.7); }
+.hints.live.urgent .hints-status { color: #ff8a7a; animation: hintPulse 0.6s ease-in-out infinite alternate; }
+@keyframes hintPulse { from { opacity: 1; } to { opacity: 0.55; } }
 @media (max-width: 900px) { .pause-grid { grid-template-columns: 1fr; } .pause-info { display: none; } }
+
+/* Controls & Tutorial: the on-screen hints switch */
+.hint-toggle { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px; font-weight: 600; color: var(--muted); }
+.hint-toggle span { margin-right: 4px; }

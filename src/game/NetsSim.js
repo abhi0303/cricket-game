@@ -85,7 +85,8 @@ export function zoneOf(dirDeg, deep = false) {
   return 'the keeper';
 }
 
-function projectionField(kind) {
+/** The standard field a nets shot is played out against (also drawn on the nets field chart). */
+export function projectionField(kind) {
   const preset = FIELD_PRESETS[kind === 'spin' ? 'spin' : 'balanced'];
   const kp = keeperPosition(kind);
   return [
@@ -98,7 +99,8 @@ function projectionField(kind) {
 /**
  * Play a shot out on an open field with average fielders (the match's interception rules): boundary,
  * catch, a diving chance, or runs while the ball comes back. p0/v0 = contact point and launch velocity.
- * Returns { kind: 'six'|'four'|'caught'|'chance'|'runs'|'dot', runs, where } (where: words for the HUD).
+ * Returns { kind: 'six'|'four'|'caught'|'chance'|'runs'|'dot', runs, where, to } (where: words for the HUD,
+ * to: where the ball got to on the field — over the rope, into the fielder's hands, or where it was stopped).
  */
 export function projectShot(p0, v0, kind = 'pace') {
   const bat = simulateBattedBall(p0, v0, { startT: 0 });
@@ -133,17 +135,17 @@ export function projectShot(p0, v0, kind = 'pace') {
   const dir = Math.atan2(v0.x, -v0.z) * 180 / Math.PI;
   const bnd = bat.boundary;
   if (clean && !(bnd && clean.t >= bnd.t)) {
-    return { kind: 'caught', runs: 0, where: clean.f.keeper ? 'behind' : clean.f.bowler ? 'and bowled' : `at ${clean.f.name}` };
+    return { kind: 'caught', runs: 0, where: clean.f.keeper ? 'behind' : clean.f.bowler ? 'and bowled' : `at ${clean.f.name}`, to: clean.p };
   }
   if (bnd && (!best || best.t >= bnd.t)) {
     const z = zoneOf(dir, true);
     const where = bnd.runs === 6
       ? (z === 'straight' ? "straight back over the bowler's head" : `over ${z}`)
       : (z === 'straight' ? 'straight past the bowler' : z === 'the keeper' ? 'past the keeper' : `through ${z}`);
-    return { kind: bnd.runs === 6 ? 'six' : 'four', runs: bnd.runs, where };
+    return { kind: bnd.runs === 6 ? 'six' : 'four', runs: bnd.runs, where, to: bnd.p };
   }
   if (best?.air) {
-    return { kind: 'chance', runs: 0, where: best.f.keeper ? 'behind the stumps' : best.f.bowler ? 'to the bowler' : `at ${best.f.name}` };
+    return { kind: 'chance', runs: 0, where: best.f.keeper ? 'behind the stumps' : best.f.bowler ? 'to the bowler' : `at ${best.f.name}`, to: best.p };
   }
   // Fielded on the ground (or picked up where it stops): the batters run until the ball is back at the stumps.
   let who = best?.f || null, at = best?.p, tField = best?.t;
@@ -161,9 +163,9 @@ export function projectShot(p0, v0, kind = 'pace') {
   const dist = Math.hypot(at.x, at.z - 9.2);
   const z = zoneOf(dir, dist > 38);
   // A ball that dies near the pitch is a push-and-run single (the match AI takes these too).
-  if (runs) return { kind: 'runs', runs, where: dist < 12 ? 'a quick single' : z === 'straight' ? 'straight down the ground' : z === 'the keeper' ? 'behind the stumps' : `to ${z}`, tBack };
+  if (runs) return { kind: 'runs', runs, where: dist < 12 ? 'a quick single' : z === 'straight' ? 'straight down the ground' : z === 'the keeper' ? 'behind the stumps' : `to ${z}`, tBack, to: at };
   const where = !who ? '' : who.bowler ? 'back to the bowler' : who.keeper ? 'to the keeper' : `straight to ${who.name}`;
-  return { kind: 'dot', runs: 0, where, tBack };
+  return { kind: 'dot', runs: 0, where, tBack, to: at };
 }
 
 // ------------------------------------------------------------------ the delivery
@@ -206,14 +208,14 @@ export class NetsDeliverySim extends DeliverySim {
     this.startBatted({ ...atK, y: Math.max(BALL_R, atK.y) }, v, { alreadyBounced: true });
   }
 
-  startBatted(p, v, { alreadyBounced = false } = {}) {
+  startBatted(p, v, { alreadyBounced = false, startT = this.t } = {}) {
     this.phase = 'inplay';
     if (this.inplayStart == null) this.inplayStart = this.t;
     this.ball.state = 'batted';
     this.ball.holder = null;
     this.ball.heldAtEnd = null;
     if (this.contactMade && !this.projection) this.projection = projectShot(p, v, this.kind);
-    this.bat = simulateNetBall(p, v, { startT: this.t, alreadyBounced });
+    this.bat = simulateNetBall(p, v, { startT: Math.min(startT, this.t), alreadyBounced });
     for (const h of this.bat.hits) this.schedule(h.t, () => this.emit('netHit', { which: h.which, speed: h.speed, p: h.p }));
     this.schedule(Math.min(this.bat.stopT, this.t + 3) + 0.35, () => this.finish());
   }

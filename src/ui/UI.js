@@ -34,7 +34,8 @@ export function glyph(input, action, profile) {
 export function hintBar(input, profile, items) {
   return items.map(([action, text]) => {
     const acts = [].concat(action);
-    return `<span class="hint${acts.length > 1 ? ' wide' : ''}">${acts.map(a => glyph(input, a, profile)).join('')} ${esc(text)}</span>`;
+    // two buttons or a long label take the whole row of the card
+    return `<span class="hint${acts.length > 1 || text.length > 11 ? ' wide' : ''}">${acts.map(a => glyph(input, a, profile)).join('')} ${esc(text)}</span>`;
   }).join('');
 }
 

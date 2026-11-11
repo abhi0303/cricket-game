@@ -25,7 +25,7 @@ The cricket rules, squad validation, ball physics, AI, input handling and camera
 npm test          # node --test tests/*.test.js
 ```
 
-There are 151 tests. They cover every squad-composition rule, scoring and extras, Test matches (innings order, stumps and the day's overs, the follow-on, innings wins, chases, ties, declarations, draws on time, the new ball, the Test wide rule, the computer's declarations and Test-like AI scoring), the free-hit switch, DRS (ball tracking's pitching / impact / wickets calls and umpire's-call margins, overturns, reviews kept and lost, three a side per innings, the on-field umpire's accuracy and when the computer reviews), fielding (catches by height, pickups, long barriers, dives only when needed, facing the ball and turning to throw, run-outs taken in the gloves before the stumps are broken), strike rotation, over changes, wickets and the next batter, free hits, bowler over limits, target chasing and results. They also run full AI-vs-AI matches in all three formats (checking that runs, balls and wickets always add up), save/resume mid-match, skipping ahead (simulating an innings, stopping exactly at the final overs of a chase), moving across the crease (keys, reach, pads and stumps, wide calls), the controller layout and shot direction in every camera, sprinting and diving for the crease (only near the line, and no further run after a dive until you call one), net practice (fixed and random speeds, the chosen length, line and delivery always bowled, the netting stopping the ball, and what each shot would be worth on the field), the bowling physics (all 10 speeds × 8 lengths, pitching inside the chosen range, bounce direction, travel and reaction times, identical results at 30/60/120 FPS, nothing passing through the bat, body or stumps), timing windows and shot selection, swing and spin direction, gamepad edge detection, dead zones and connect/disconnect, the batting and bowling camera positions (including the TV framing), the field chart's orientation and counts, every named import between the game's modules, and the batting animations (footwork, contact positions, the bat keeping its speed through the ball, high finishes).
+There are 156 tests. They cover every squad-composition rule, scoring and extras, Test matches (innings order, stumps and the day's overs, the follow-on, innings wins, chases, ties, declarations, draws on time, the new ball, the Test wide rule, the computer's declarations and Test-like AI scoring), the free-hit switch, DRS (ball tracking's pitching / impact / wickets calls and umpire's-call margins, overturns, reviews kept and lost, three a side per innings, the on-field umpire's accuracy and when the computer reviews), fielding (catches by height, pickups, long barriers, dives only when needed, facing the ball and turning to throw, run-outs taken in the gloves before the stumps are broken), strike rotation, over changes, wickets and the next batter, free hits, bowler over limits, target chasing and results. They also run full AI-vs-AI matches in all three formats (checking that runs, balls and wickets always add up), save/resume mid-match, skipping ahead (simulating an innings, stopping exactly at the final overs of a chase), moving across the crease (keys, reach, pads and stumps, wide calls), the controller layout and shot direction in every camera, sprinting and diving for the crease (only near the line, and no further run after a dive until you call one), net practice (fixed and random speeds, the chosen length, line and delivery always bowled, the netting stopping the ball, and what each shot would be worth on the field), the bowling physics (all 10 speeds × 8 lengths, pitching inside the chosen range, bounce direction, travel and reaction times, identical results at 30/60/120 FPS, nothing passing through the bat, body or stumps), timing windows and shot selection, bat on ball (where each shot can reach, the ball leaving from where the bat meets it and never from behind the batter, the outcome settled as the shot is played), the field-chart aim, swing and spin direction, gamepad edge detection, dead zones and connect/disconnect, the batting and bowling camera positions (including the TV framing), the field chart's orientation and counts, every named import between the game's modules, and the batting animations (footwork, contact positions, the bat keeping its speed through the ball, high finishes).
 
 ### Publishing on GitHub Pages
 
@@ -68,8 +68,8 @@ All-rounders must have a bowling type and don't count as full-time bowlers. The 
 | Ground shot (drive, cut, pull, flick, punch) | K | A | ✕ |
 | Lofted shot (hook with stick back) | L | B | ○ |
 | Precision modifier (hold) | C | X | □ |
-| Leave | U | Y | △ |
-| Defensive block | J | RB | R1 |
+| Leave | U | RS (press the right stick) | R3 |
+| Defensive block | J | Y | △ |
 | Advanced: sweep | I | LB | L1 |
 | Power modifier (hold) | Shift | RT | R2 |
 | Call run | Space | X | □ |
@@ -77,7 +77,7 @@ All-rounders must have a bowling type and don't count as full-time bowlers. The 
 | Sprint, both batters (hold) | Shift | RT or LT | R2 or L2 |
 | Dive for the crease | E | Y | △ |
 
-On a controller the face buttons do two jobs: while the ball is coming they play the shots (A ground, B lofted, X precision, Y leave); once it's in play they run (X run, B send back, Y dive). The triggers work the same way: RT is the power modifier for a shot, then RT or LT sprints. If you saved your own controller layout before this change, the batting buttons move to this layout once; your keyboard keys are kept.
+On a controller the face buttons do two jobs: while the ball is coming they play the shots (A ground, B lofted, X precision, Y defend); once it's in play they run (X run, B send back, Y dive). Press the right stick (RS / R3) to leave the ball. The triggers work the same way: RT is the power modifier for a shot, then RT or LT sprints. If you saved your own controller layout before this change, the batting buttons move to this layout once; your keyboard keys are kept.
 
 **Shot direction follows the picture.** Push the stick towards the bowler on screen for front-foot shots and away from him for back-foot shots. Behind the batter that's up and down; in the TV (bowler's end) and umpire views the picture is mirrored, so it's down and up, and left/right are swapped to match as well.
 
@@ -89,7 +89,9 @@ On a controller the face buttons do two jobs: while the ball is coming they play
 - Away to the leg side, you make room to hit through the off side, but the stumps are exposed.
 - Wides follow the law: a ball you moved across to reach isn't a wide, and backing away can't turn a ball into one.
 
-Push the stick **up** for front-foot shots and **down** for back-foot shots, **right** for the off side and **left** for the leg side. A green arrow shows your aim. Press the shot button just before the ball arrives. The timing bar reports Early / Good / Perfect / Late, and a white ring marks where the ball pitched.
+Push the stick **up** for front-foot shots and **down** for back-foot shots, **right** for the off side and **left** for the leg side. While you line the shot up, a gold wedge on the field chart runs from the striker to the rope where a ground shot would go (with the aim assist's nudge towards a gap), so you can pick the gap between fielders; once the ball is hit, a dashed line on the chart follows it. Press the shot button just before the ball arrives. The timing bar reports Early / Good / Perfect / Late, and a white ring marks where the ball pitched.
+
+**Bat on ball.** The bat has to get to the ball. When you play a shot, the game works out where the ball will be when your bat comes through: on time, it meets the ball at the shot's contact point; early, up to 30 cm further out in front; late, up to 30 cm deeper, but never behind you. Whether you middle it, edge it or are beaten is settled then, and the batter's swing is aimed to match: the middle of the bat on the ball, the ball on an edge, or the bat going past it. A hit ball leaves from the face of the bat at the moment of contact. Each shot can only reach part of the hitting area: you can't hook a ball at knee height, sweep one at chest height or cut one going down the leg side, and trying is a miss ("Out of reach"). The computer's batters pick their shots with the same reach.
 
 ### Net practice
 
@@ -106,7 +108,7 @@ Pick **Net Practice** on the main menu, set up the bowler, then press **Start Ne
 | Difficulty | Easy, Normal, Hard (as in a match), or **Real time** (no slow motion) |
 | Batter | Any player in your squad |
 
-"Mixed" uses the computer bowler's own plans, so you get a realistic spread of lengths and variations. The bowler runs in on his own, and the controls are the same as batting in a match (moving across the crease included); there is no running. The stands are empty and the pitch is enclosed in green netting, with side nets, a back net and a roof over the batting half. Hits stop in the netting, and straight drives run out of the open end towards the bowler.
+"Mixed" uses the computer bowler's own plans, so you get a realistic spread of lengths and variations. The bowler runs in on his own, and the controls are the same as batting in a match (moving across the crease included); there is no running. The stands are empty and the pitch is enclosed in green netting, with side nets, a back net and a roof over the batting half. The field chart shows the standard field each shot is scored against, with your aim, and draws where the last shot would have gone. Hits stop in the netting, and straight drives run out of the open end towards the bowler.
 
 Nothing is scored, but every ball is graded. You see your timing and shot, and what the shot would have been worth against a normal field: four, six, runs, caught, or a diving chance. Bowled, LBW and played-on are given as they happen. A strip along the bottom keeps the session going: balls, runs, fours and sixes, dismissals, the share of shots you middled, and the last eight balls. **Pause → Change bowler** brings on a different bowler, speed or batter straight away; **Leave the nets** shows a session summary. **R** replays the last ball.
 
@@ -158,7 +160,8 @@ Pick a **speed** with **E / Y / △** (faster) and **Q / B / ○** (slower): 150
 
 **On screen:**
 - **Field chart (top right):** a live map of the ground with every fielder, both batters and the ball in play. It shows the field setting and how many fielders are on the off side, on the leg side and inside the circle. It turns with your camera, so a gap on the right of the chart is on the right of the screen, which is where pushing the stick right sends the ball.
-- **Controls:** a small card under the chart lists the buttons for what you're doing right now (batting, running, bowling, fielding or between balls). Turn it off with **Button hints** in Match Settings or **Pause → Settings**.
+- **Controls:** a small card under the chart lists the buttons for what you're doing right now (batting, bowling, fielding or between balls). Turn it off with **On-screen control hints** in Match Settings, **Pause → Settings** or **Controls & Tutorial**.
+- **Running:** once the ball is in play the card turns into the running call: the state ("Run?", "Running… 1 done", "Get back!") and the run, send back, sprint and dive buttons. It shows only while the batters can run and goes once they're done. With control hints off, the call still shows but the buttons don't.
 - **Score strip (bottom):** a two-row strip like TV coverage. It shows both team badges, the score and overs, the run rate or "need X from Y balls", the striker (▸) and non-striker with runs and balls, this over ball by ball, and the bowler's figures.
 
 **Auto-play and skipping ahead:**
@@ -217,8 +220,10 @@ src/scene/                      StadiumScene, NetArea (green practice nets), Bal
 src/ui/                         Screens (menus), HUD + overlays, FieldMap (field chart), NetsForm (nets bowler set-up), Emblem, UI helpers
 src/audio/Sound.js              procedural Web Audio effects (no audio files)
 assets/preview.jpg              link-preview image (not loaded by the game)
+assets/textures/                the pitch surface (colour and relief)
 tests/                          node:test suites
 scripts/physicsReport.mjs       speed x length report vs the 20.12 m baseline (npm run physics-report)
+scripts/pitch-texture.html      generates the pitch textures in assets/textures/ (open it from a local server and download)
 docs/bowling-physics.md         physics formulas, configuration and the full timing table
 .github/workflows/pages.yml     test + deploy to GitHub Pages
 ```
@@ -257,6 +262,7 @@ Every player is one skinned mesh on a shared 17-bone skeleton: hips, spine, ches
 - **Fielders and bowlers:** team cap and bare hands with fingers. The bowler holds the ball in the hand.
 - **Umpires:** blue shirt, black trousers and a wide-brimmed hat.
 - **Team kit:** colours, side panels, a chest emblem, and the player's name and number on the back. In Tests both sides wear cream whites, with the team colour kept for the trim, name, cap and helmet.
+- **The pitch:** a texture image (assets/textures/pitch.jpg, made by scripts/pitch-texture.html) of dry khaki soil with a patchy network of cracks, thin straw grass that gets greener towards the edges, worn and dusty ends, the bowlers' footmarks at the popping crease, scuffed follow-through rough, spike marks and the batters' guard marks, plus a relief map so the cracks and footmarks catch the light. The creases are painted on top.
 - **The ball:** stitched leather, red in Tests and white otherwise. It has a raised main seam with six rows of stitching, faint quarter seams and a small gold maker's stamp, and new leather has a polish. As the ball gets older (over 80 overs for a red ball, about 25 for a white one) it loses its shine and picks up light scuffs, specks of mud and the odd grass mark. It spins in flight: backspin with the seam upright for pace, turning about its line of flight for spin, tumbling off the bat and rolling on the grass.
 - **Variety:** each player gets a seeded height, skin tone, hairstyle and facial hair.
 

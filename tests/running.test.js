@@ -44,7 +44,7 @@ function runUntil(sim, done, { dt = 1 / 240, limit = 8, each = null } = {}) {
 const striker = sim => sim.runners.find(r => r.id === sim.strikerP.id);
 const distToGround = (r, end) => (end === 'nonStriker' ? r.z - (CREASE_Z.nonStriker + BAT_REACH) : (CREASE_Z.striker - BAT_REACH) - r.z);
 
-test('controller layout: A ground, B lofted, X precision, Y leave; X run, B back, Y dive; RT/LT sprint', () => {
+test('controller layout: A ground, B lofted, X precision, Y defend, R3 leave; X run, B back, Y dive; RT/LT sprint', () => {
   const { input, hold } = padInput();
   const check = (btn, actions) => {
     hold(btn);
@@ -54,11 +54,14 @@ test('controller layout: A ground, B lofted, X precision, Y leave; X run, B back
   check(PAD.A, ['ground']);
   check(PAD.B, ['lofted', 'cancelRun']);
   check(PAD.X, ['precision', 'run']);
-  check(PAD.Y, ['leave', 'dive']);
+  check(PAD.Y, ['defend', 'dive']);
+  check(PAD.RS, ['leave']);
   check(PAD.RT, ['power', 'sprint']);
   check(PAD.LT, ['sprint']);
-  check(PAD.RB, ['defend']);
   check(PAD.LB, ['advanced']);
+  hold(PAD.Y);
+  assert.equal(input.down('leave'), false, 'Y is not leave any more');
+  hold(PAD.Y, false);
   hold(PAD.A);
   for (const a of ['defend', 'run', 'cancelRun', 'dive', 'leave']) assert.equal(input.down(a), false, `A is not ${a}`);
 });
@@ -69,15 +72,22 @@ test('an older saved controller layout moves to the new batting buttons once; ke
   old.batting.run = { keys: ['Space'], pad: [PAD.LB] };
   old.bowling.bowl = { keys: ['KeyJ'], pad: [PAD.X] };
   const merged = mergeBindings(JSON.parse(JSON.stringify(old)));          // saved before layout versions existed
-  assert.deepEqual(merged.batting.defend, { keys: ['KeyF'], pad: [PAD.RB] }, 'custom key kept, pad moved');
+  assert.deepEqual(merged.batting.defend, { keys: ['KeyF'], pad: [PAD.Y] }, 'custom key kept, pad moved');
   assert.deepEqual(merged.batting.run.pad, [PAD.X]);
   assert.deepEqual(merged.bowling.bowl.pad, [PAD.X], 'bowling buttons untouched');
   // once saved with the new version, the player's own controller choices stick
   const mine = mergeBindings(null);
-  mine.batting.leave.pad = [PAD.RS];
+  mine.batting.leave.pad = [PAD.LB];
   const saved = JSON.parse(JSON.stringify(bindingsForSave(mine)));
   assert.equal(saved._v, BINDINGS_VERSION);
-  assert.deepEqual(mergeBindings(saved).batting.leave.pad, [PAD.RS]);
+  assert.deepEqual(mergeBindings(saved).batting.leave.pad, [PAD.LB]);
+  // a layout saved under version 2 (Y leave, RB defend) moves to Y defend and R3 leave
+  const v2 = { ...JSON.parse(JSON.stringify(mergeBindings(null))), _v: 2 };
+  v2.batting.leave = { keys: ['KeyU'], pad: [PAD.Y] };
+  v2.batting.defend = { keys: ['KeyJ'], pad: [PAD.RB] };
+  const up = mergeBindings(v2);
+  assert.deepEqual(up.batting.defend.pad, [PAD.Y]);
+  assert.deepEqual(up.batting.leave.pad, [PAD.RS]);
 });
 
 test('shot direction follows the picture: in the TV view down is forward, behind the batter up is', () => {
