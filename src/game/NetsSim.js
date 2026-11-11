@@ -115,6 +115,7 @@ export function projectShot(p0, v0, kind = 'pace') {
       const p = path.p[i];
       const air = fb == null || ti < fb;
       if (p.y > (air ? 2.6 : 1.3) || (air && p.y < 0.12)) continue;
+      if (air && f.keeper && p.z < PITCH.half - 0.4) continue;   // as in the match: no forward catches by the keeper
       const d = Math.hypot(p.x - f.x, p.z - f.z);
       const hard = clamp(1.45 - Math.hypot(path.v[i].x, path.v[i].z) / 32, 0.45, 1);
       const reach = (air ? 1.0 : 0.75) * (0.8 + 0.2 * hard);

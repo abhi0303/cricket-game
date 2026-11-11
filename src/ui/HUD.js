@@ -5,6 +5,7 @@ import { oversString, runRate, totalExtras, DISMISSALS } from '../game/CricketRu
 import { BOWLING_TYPES, ROLE_SHORT } from '../game/PlayerAttributes.js';
 import { FIELD_PRESETS } from '../game/FieldPlacements.js';
 import { finalOversFor } from '../game/SkipSim.js';
+import { ordinal } from '../game/MatchEngine.js';
 import { FieldMap, fieldCounts, chartColor } from './FieldMap.js';
 
 const HUD_COMMON = `
@@ -95,12 +96,21 @@ export class HUD {
     const upper = t => esc(String(t).toUpperCase());
     this.set('.tv-short', esc(bat.short));
     this.set('.tv-score', `${inn.runs}-${inn.wickets}`);
-    this.set('.tv-ov', `${oversString(inn.legalBalls)}<small>/${inn.maxOvers}</small>`);
     let status;
-    if (inn.target != null) {
-      status = sit.need <= 0 ? 'TARGET REACHED' : `NEED ${sit.need} FROM ${sit.ballsLeft} BALL${sit.ballsLeft === 1 ? '' : 'S'}`;
-    } else status = `RUN RATE ${sit.crr.toFixed(2)}`;
-    if (inn.freeHit) status = `<b class="tv-fh">FREE HIT</b> ${status}`;
+    if (engine.isTest) {
+      // Test: overs without a limit; the lead/trail (or the target) and the day of the match.
+      this.set('.tv-ov', `${oversString(inn.legalBalls)}<small> ov</small>`);
+      const lead = sit.lead;
+      const state = inn.target != null ? (sit.need <= 0 ? 'TARGET REACHED' : `NEED ${sit.need} TO WIN`)
+        : sit.innings === 1 ? `1ST INNINGS · RR ${sit.crr.toFixed(2)}` : lead > 0 ? `LEAD BY ${lead}` : lead < 0 ? `TRAIL BY ${-lead}` : 'SCORES LEVEL';
+      status = `${state} · DAY ${sit.day}`;
+    } else {
+      this.set('.tv-ov', `${oversString(inn.legalBalls)}<small>/${inn.maxOvers}</small>`);
+      if (inn.target != null) {
+        status = sit.need <= 0 ? 'TARGET REACHED' : `NEED ${sit.need} FROM ${sit.ballsLeft} BALL${sit.ballsLeft === 1 ? '' : 'S'}`;
+      } else status = `RUN RATE ${sit.crr.toFixed(2)}`;
+      if (inn.freeHit) status = `<b class="tv-fh">FREE HIT</b> ${status}`;
+    }
     this.set('.tv-status', status);
     const bline = (id, star) => {
       if (!id) return '';
@@ -209,13 +219,17 @@ const optionButtons = opts => opts.map(([act, label, sub, primary]) =>
 
 export function pauseHTML(engine, { auto = false, userBowling = false } = {}) {
   const s = engine.situation();
-  return `<h2>Paused</h2><p class="muted">${esc(engine.battingTeam.name)} ${s.runs}/${s.wickets} (${s.overs} ov)</p>
+  const test = engine.isTest;
+  const canDeclare = test && !userBowling && engine.inningsIndex < 3 && engine.innings.legalBalls > 0;
+  return `<h2>Paused</h2><p class="muted">${esc(engine.battingTeam.name)} ${s.runs}/${s.wickets} (${s.overs} ov)${test ? ` · Day ${s.day} of ${s.days}` : ''}</p>
     <div class="ov-actions col">
       <button class="btn primary" data-ov="resume">Resume</button>
       ${optionButtons([
         auto ? ['autoplay', 'Take back control', `Stop the AI ${userBowling ? 'bowling' : 'batting'} for you`]
           : ['autoplay', 'Auto-play', `The AI ${userBowling ? 'bowls' : 'bats'} for you while you watch`],
-        ...(userBowling ? [['skip', 'Skip bowling', s.target != null ? 'Simulate ahead: the final overs or the result' : 'Simulate the rest of this innings']] : []),
+        ...(canDeclare ? [['declare', 'Declare', `Close the innings at ${s.runs}/${s.wickets}${s.lead ? ` (${s.lead > 0 ? 'lead' : 'trail'} by ${Math.abs(s.lead)})` : ''}`]] : []),
+        ...(test ? [['skip', 'Skip ahead', 'Simulate to stumps, the end of this innings, or the result']]
+          : userBowling ? [['skip', 'Skip bowling', s.target != null ? 'Simulate ahead: the final overs or the result' : 'Simulate the rest of this innings']] : []),
       ])}
       <button class="btn" data-ov="scorecard">Scorecard</button>
       <button class="btn" data-ov="controls">Controls</button>
@@ -261,6 +275,15 @@ export function netsSummaryHTML(stats, bowlerLabel, batter) {
 /** Skip-bowling choices for the current innings (first innings: finish it; a chase: the finish or the result). */
 export function skipHTML(engine) {
   const s = engine.situation(), bat = engine.battingTeam;
+  if (engine.isTest) {
+    return `<h2>Skip ahead</h2>
+    <p class="muted">${esc(bat.name)} ${s.runs}/${s.wickets} (${s.overs} ov) · Day ${s.day}, ${s.oversLeftToday} over${s.oversLeftToday === 1 ? '' : 's'} left today</p>
+    <div class="ov-actions col">${optionButtons([
+      ['stumps', 'Simulate to stumps', `The rest of Day ${s.day}`, true],
+      ['innings', 'Simulate this innings', `${esc(bat.name)} bat until they are out or declare`],
+      ['result', 'Simulate to the result', 'Play out the rest of the match'],
+    ])}<button class="btn ghost" data-ov="back">Back</button></div>`;
+  }
   const n = finalOversFor(engine.config.overs);
   const fin = `last ${n} over${n > 1 ? 's' : ''}, a close finish or the last two wickets`;
   const opts = s.target != null ? [
@@ -288,6 +311,13 @@ export function updateSimulating(root, engine) {
   const bat = engine.team(inn.battingTeam);
   const q = sel => root.querySelector(sel);
   if (!q('.sim-score')) return;
+  if (engine.isTest) {
+    const T = engine.state.test, day = engine.config.oversPerDay * 6;
+    q('.sim-score').innerHTML = `${esc(bat.name)} <b>${inn.runs}/${inn.wickets}</b> <small>(${oversString(inn.legalBalls)} ov) · Day ${T.day}</small>`;
+    q('.sim-need').innerHTML = testScoreLine(engine);
+    q('.sim-bar i').style.width = Math.min(100, ((T.day - 1) * day + T.dayBalls) / (engine.config.days * day) * 100) + '%';
+    return;
+  }
   q('.sim-score').innerHTML = `${esc(bat.name)} <b>${inn.runs}/${inn.wickets}</b> <small>(${oversString(inn.legalBalls)} / ${inn.maxOvers} ov)</small>`;
   q('.sim-need').textContent = inn.target != null ? `Target ${inn.target} · need ${Math.max(0, inn.target - inn.runs)}` : '';
   q('.sim-bar i').style.width = Math.min(100, inn.legalBalls / (inn.maxOvers * 6) * 100) + '%';
@@ -333,8 +363,9 @@ export function bowlerSelectHTML(engine, suggested, preset) {
       <option value="auto" ${preset === 'auto' ? 'selected' : ''}>Captain decides</option>
       ${Object.entries(FIELD_PRESETS).map(([k, v]) => `<option value="${k}" ${preset === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></label>
     <div class="ov-actions">${optionButtons([
+      ['captain', 'Captain picks the bowlers', 'For the rest of this innings; you still bowl'],
       ['autoBowl', 'Auto-play', 'The AI bowls for you while you watch'],
-      ['skip', 'Skip bowling', inn.target != null ? 'Simulate ahead: the final overs or the result' : 'Simulate the rest of this innings'],
+      ...(engine.isTest ? [] : [['skip', 'Skip bowling', inn.target != null ? 'Simulate ahead: the final overs or the result' : 'Simulate the rest of this innings']]),
     ])}</div>`;
 }
 
@@ -370,7 +401,74 @@ function bowlingCard(engine, inn) {
 }
 
 export function scorecardHTML(engine) {
-  return engine.state.innings.map((inn, i) => `<div class="sc-inn"><h3>${esc(engine.team(inn.battingTeam).name)} — ${i === 0 ? '1st' : '2nd'} innings</h3>${battingCard(engine, inn)}${bowlingCard(engine, inn)}</div>`).join('');
+  return engine.state.innings.map((inn, i) => {
+    const nth = engine.isTest ? `${ordinal(engine.state.innings.slice(0, i + 1).filter(x => x.battingTeam === inn.battingTeam).length)} innings` : `${ordinal(i + 1)} innings`;
+    const note = inn.endReason === 'declared' ? ' (declared)' : '';
+    return `<div class="sc-inn"><h3>${esc(engine.team(inn.battingTeam).name)} — ${nth}${note}</h3>${battingCard(engine, inn)}${bowlingCard(engine, inn)}</div>`;
+  }).join('');
+}
+
+/** Short Test score line: "HHK 325 & 210/4d" for each side. */
+export function testScoreLine(engine) {
+  return engine.state.teams.map(t => {
+    const inns = engine.state.innings.filter(i => i.battingTeam === t.id);
+    if (!inns.length) return `<b>${esc(t.short)}</b> yet to bat`;
+    return `<b>${esc(t.short)}</b> ${inns.map(i => `${i.runs}${i.wickets < 10 ? `/${i.wickets}` : ''}${i.endReason === 'declared' ? 'd' : ''}`).join(' &amp; ')}`;
+  }).join(' &nbsp;·&nbsp; ');
+}
+
+/** Test innings break: the scores, who bats next, and the follow-on choice when there is one. */
+export function testBreakHTML(engine, { followOn = null } = {}) {
+  const s = engine.state, last = engine.innings, idx = engine.inningsIndex;
+  const opt = s.test.followOnOption;
+  const leader = opt && engine.team(opt.team);
+  const userLeads = leader?.isUser;
+  const nextBat = engine.team(engine.battingTeamFor(idx + 1));
+  const why = last.endReason === 'declared' ? 'declared' : last.endReason === 'allout' ? 'all out' : '';
+  let body = '';
+  if (opt && userLeads && followOn == null) {
+    body = `<p>You lead by <b>${opt.lead}</b>. Enforce the follow-on and make them bat again straight away, or bat again yourself?</p>
+      <div class="ov-actions">${optionButtons([
+        ['enforce', 'Enforce the follow-on', `${esc(engine.team(last.battingTeam).name)} bat again, ${opt.lead} behind`, true],
+        ['batAgain', 'Bat again', 'Build a bigger lead first'],
+      ])}</div>`;
+  } else {
+    const fo = followOn ?? false;
+    const third = idx === 1 ? (fo ? engine.team(last.battingTeam) : engine.team(s.innings[0].battingTeam)) : nextBat;
+    const batNext = idx === 1 ? third : nextBat;
+    const tgt = idx === 2 ? engine.teamTotal(last.battingTeam) - engine.teamTotal(batNext.id) + 1 : null;
+    const info = opt && !userLeads ? `<p><b>${esc(leader.name)}</b> ${fo ? 'enforce the follow-on' : 'choose to bat again'} (lead ${opt.lead}).</p>` : '';
+    body = `${info}<p>${esc(batNext.name)} bat next${tgt != null ? `, needing <b>${tgt}</b> to win` : ''}.</p>
+      <div class="ov-actions">${optionButtons([
+        ['next', batNext.isUser ? 'Start batting →' : 'Start bowling →', `${ordinal(idx + 2)} innings, Day ${s.test.day}`, true],
+        ['watch', 'Watch (auto-play)', 'The AI plays your side; pause to take control'],
+        ['simInnings', 'Simulate this innings', ''],
+        ['result', 'Simulate to the result', ''],
+      ])}</div>`;
+  }
+  return `<h2>${esc(engine.team(last.battingTeam).name)} ${last.runs}/${last.wickets}${why ? ` <small>${why}</small>` : ''}</h2>
+    <p class="big">${testScoreLine(engine)}</p>
+    ${body}
+    <div class="sc-scroll">${scorecardHTML(engine)}</div>`;
+}
+
+/** End of a day's play in a Test. */
+export function stumpsHTML(engine, day) {
+  const inn = engine.innings || engine.state.innings[engine.state.innings.length - 1];
+  const sit = engine.phase === 'innings' ? engine.situation() : null;
+  const bat = engine.team(inn.battingTeam);
+  const next = engine.phase === 'break' ? 'The next innings starts' : `${esc(bat.name)} resume on ${inn.runs}/${inn.wickets}`;
+  const lead = sit ? (inn.target != null ? `, needing ${sit.need} more to win` : sit.lead > 0 ? `, ${sit.lead} ahead` : sit.lead < 0 ? `, ${-sit.lead} behind` : '') : '';
+  return `<h2>Stumps — Day ${day}</h2>
+    <p class="big">${testScoreLine(engine)}</p>
+    <p>${next} on Day ${day + 1}${lead}.</p>
+    <div class="ov-actions">${optionButtons([
+      ['nextDay', `Start Day ${day + 1} →`, '', true],
+      ['simDay', `Simulate Day ${day + 1}`, 'Then carry on from stumps'],
+      ['result', 'Simulate to the result', ''],
+      ['scorecard', 'Scorecard', ''],
+      ['quit', 'Save &amp; quit', 'Carry on later from the main menu'],
+    ])}</div>`;
 }
 
 export function inningsBreakHTML(engine) {
@@ -399,7 +497,9 @@ export function resultHTML(engine) {
   const s = engine.summary();
   const userWon = r.winner && engine.team(r.winner).isUser;
   const fig = (x) => x ? `${esc(x.player.name)} <small>${x.wickets != null && x.overs != null ? `${x.wickets}/${x.runs} (${x.overs})` : `${x.runs} (${x.balls})`}</small>` : '-';
-  return `<h2 class="${r.type === 'tie' ? '' : userWon ? 'win' : 'loss'}">${r.type === 'tie' ? 'It\'s a tie!' : userWon ? 'Victory!' : 'Defeat'}</h2>
+  const level = r.type === 'tie' || r.type === 'draw';
+  return `<h2 class="${level ? '' : userWon ? 'win' : 'loss'}">${r.type === 'tie' ? 'It\'s a tie!' : r.type === 'draw' ? 'Match drawn' : userWon ? 'Victory!' : 'Defeat'}</h2>
+    ${engine.isTest ? `<p class="muted">${testScoreLine(engine)}</p>` : ''}
     <p class="big">${esc(r.text)}</p>
     <div class="awards">
       <div><span>Top scorer</span><b>${s.topScorer ? `${esc(s.topScorer.player.name)} <small>${s.topScorer.runs} (${s.topScorer.balls})</small>` : '-'}</b></div>

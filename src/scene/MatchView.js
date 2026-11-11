@@ -7,6 +7,10 @@ import { CONTACT_T, RELEASE_T, copyPose, emptyPose } from './Animations.js';
 import { PITCH } from '../game/BallPhysics.js';
 import { lengthDef } from '../game/PhysicsConfig.js';
 import { BATTER_X, STANCE_Z } from '../game/ShotModel.js';
+import { ballMaterial, setBallLook } from './BallLook.js';
+
+const _spinAxis = new THREE.Vector3(), _q = new THREE.Quaternion();
+const SEAM_UP = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);   // seam upright, along the pitch
 
 const SHOT_CLIP = {
   defend: 'shot_defend', straightDrive: 'shot_straightDrive', coverDrive: 'shot_coverDrive', flick: 'shot_flick',
@@ -26,8 +30,11 @@ export class MatchView {
     this.replay = null;
 
     // Ball, shadow, trail
-    this.ball = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), new THREE.MeshLambertMaterial({ color: '#fbfaf3', emissive: '#262626' }));
+    // Leather ball with a stitched seam (red for Tests, white otherwise), spinning in flight.
+    this.ball = new THREE.Mesh(new THREE.SphereGeometry(0.055, 28, 18), ballMaterial());
     this.ball.castShadow = false;
+    this.ballSpin = 0;
+    this.look = { whites: false, ball: 'white', wear: 0 };
     this.frame.add(this.ball);
     this.ballShadow = new THREE.Mesh(new THREE.CircleGeometry(0.08, 12).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.35, depthWrite: false }));
     this.frame.add(this.ballShadow);
@@ -69,11 +76,18 @@ export class MatchView {
   }
 
   // ------------------------------------------------------------------ models
+  /** Kit and ball for what's being played: { whites, ball: 'red' | 'white', wear 0..1 }. */
+  setLook({ whites = false, ball = 'white', wear = 0 } = {}) {
+    this.look = { whites: !!whites, ball, wear };
+    setBallLook(ball, wear);
+  }
+
   modelFor(player, team, role) {
-    const key = `${player?.id || role}:${role}`;
+    const whites = this.look.whites && role !== 'umpire';
+    const key = `${player?.id || role}:${role}${whites ? ':whites' : ''}`;
     let m = this.models.get(key);
     if (!m) {
-      m = new PlayerModel({ player, team, role, withBat: role === 'batter', shadows: this.shadows, quality: this.quality });
+      m = new PlayerModel({ player, team, role, withBat: role === 'batter', shadows: this.shadows, quality: this.quality, whites });
       m.showBall = false;
       this.models.set(key, m);
       this.frame.add(m.root);
@@ -304,6 +318,7 @@ export class MatchView {
     if (bowlerModel) bowlerModel.showBall = inHand;
     if (!inHand && b.p) {
       this.ball.position.set(b.p.x, Math.max(0.05, b.p.y), b.p.z);
+      this.spinBall(b, dt);
       this.ballShadow.visible = true;
       this.ballShadow.position.set(b.p.x, 0.018, b.p.z);
       const h = Math.max(0, b.p.y);
@@ -331,6 +346,26 @@ export class MatchView {
       this.pitchMark.position.set(sim.plan.bounce.x, 0.02, sim.plan.bounce.z);
       this.pitchMark.material.opacity = 0.9;
     } else this.pitchMark.material.opacity = Math.max(0, this.pitchMark.material.opacity - dt * 0.25);
+  }
+
+  /**
+   * Turn the ball as it travels: a seamer's backspin with the seam upright, a spinner's ball rotating about
+   * the line of flight, a hit ball tumbling, and a ball on the grass rolling.
+   */
+  spinBall(b, dt) {
+    const sim = this.sim, v = b.v || { x: 0, y: 0, z: 0 };
+    const speed = Math.hypot(v.x, v.y, v.z);
+    let rate, axis;
+    if (b.state === 'delivery') {
+      if (sim.kind === 'spin') { rate = 9; axis = _spinAxis.set(0.25, 0.35, 1).normalize(); }
+      else { rate = 7; axis = _spinAxis.set(1, 0, 0); }
+    } else if (b.p.y <= 0.06 && speed > 0.05) {
+      rate = Math.min(14, speed / 0.36); axis = _spinAxis.set(v.z, 0, -v.x).normalize();   // rolling
+    } else {
+      rate = Math.min(10, speed * 0.35); axis = _spinAxis.set(0.6, 0.3, 0.75).normalize();
+    }
+    this.ballSpin += rate * Math.PI * 2 * dt;
+    this.ball.quaternion.copy(_q.setFromAxisAngle(axis, this.ballSpin)).multiply(SEAM_UP);
   }
 
   // ------------------------------------------------------------------ replay

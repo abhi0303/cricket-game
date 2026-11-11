@@ -2,6 +2,7 @@
 // of a chase, simulate to the result). Plain logic with no DOM, shared by the match controller and the tests.
 
 import { simulateBallHeadless } from './MatchSim.js';
+import { aiShouldDeclare, aiEnforceFollowOn } from '../ai/CaptainAI.js';
 
 /** How many overs count as "the final overs" of a chase. */
 export function finalOversFor(matchOvers) {
@@ -13,7 +14,7 @@ export function finalOversFor(matchOvers) {
  * or the last two wickets. False outside a chase.
  */
 export function chaseFinishReached(engine) {
-  if (engine.phase !== 'innings') return false;
+  if (engine.phase !== 'innings' || engine.isTest) return false;
   const s = engine.situation();
   if (s.target == null) return false;
   const n = finalOversFor(engine.config.overs) * 6;
@@ -32,6 +33,28 @@ export function simulateBalls(engine, rng, { stop = () => false, maxBalls = Infi
   while (!over() && balls < maxBalls && !stop(engine)) {
     simulateBallHeadless(engine, rng);
     balls++;
+    if (aiShouldDeclare(engine)) engine.declare();   // Tests: the computer captains while simulating
   }
   return { balls, inningsOver: over() };
+}
+
+/**
+ * Tests: simulate on through innings breaks (the computer decides declarations and the follow-on) until
+ * `stop(engine)`, the end of the match, or `maxBalls`. Returns { balls, matchOver }.
+ */
+export function simulateAcross(engine, rng, { stop = () => false, maxBalls = Infinity } = {}) {
+  let balls = 0;
+  while (engine.phase !== 'complete' && balls < maxBalls && !stop(engine)) {
+    if (engine.phase === 'break') { engine.beginNextInnings({ followOn: aiEnforceFollowOn(engine) }); continue; }
+    simulateBallHeadless(engine, rng);
+    balls++;
+    if (aiShouldDeclare(engine)) engine.declare();
+  }
+  return { balls, matchOver: engine.phase === 'complete' };
+}
+
+/** Tests: a stop condition for "simulate to stumps" (the end of today's play, or of the match). */
+export function untilStumps(engine) {
+  const day = engine.state.test?.day ?? 0;
+  return e => e.phase === 'complete' || (e.state.test?.day ?? 0) > day;
 }

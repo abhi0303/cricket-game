@@ -12,8 +12,26 @@ const EXP_RUNS = { defend: 0.12, straightDrive: 1.6, coverDrive: 1.7, flick: 1.3
 const P_OUT = { defend: 0.008, straightDrive: 0.03, coverDrive: 0.04, flick: 0.03, punch: 0.025, cut: 0.04, pull: 0.05, hook: 0.1, lofted: 0.16, sweep: 0.06 };
 const CANDIDATES = ['defend', 'straightDrive', 'coverDrive', 'flick', 'punch', 'cut', 'pull', 'hook', 'lofted', 'sweep'];
 
+// Test cricket: batters are far more patient, and a wicket is worth much more than a few runs.
+// (Computer batters only: they also judge timing a little better and are beaten / edge a little less.)
+export const TEST_BATTING = { intentScale: 0.5, intentShift: -0.04, wicketValue: 2.2, timing: 0.9, edgeMult: 0.85 };
+
+/** Test-match intent: patient, picking up only when chasing quickly or pushing for a declaration. */
+function testIntent(batter, s, ballsFaced) {
+  let a = battingStyleMods(batter).aiAggression * TEST_BATTING.intentScale + TEST_BATTING.intentShift;
+  if (s.target != null) {
+    const rrr = s.rrr ?? 0;
+    if (rrr > 5) a += 0.3; else if (rrr > 4) a += 0.15; else if (rrr > 3.2) a += 0.05;
+  } else if (s.innings === 3 && s.lead > 200) a += 0.15;    // quick runs before a declaration
+  if (s.wicketsLeft != null && s.wicketsLeft <= 2) a -= 0.08;
+  if (ballsFaced < 12) a -= 0.06;                           // playing themselves in
+  if (s.phaseOfInnings === 'early') a -= 0.03;              // the new ball
+  return clamp(a, 0, 1);
+}
+
 /** How aggressive the batter should be right now (0..1). */
 export function batterIntent(batter, situation = {}, ballsFaced = 0) {
+  if (situation?.format === 'test') return testIntent(batter, situation, ballsFaced);
   let a = battingStyleMods(batter).aiAggression;
   const s = situation;
   if (s.phaseOfInnings === 'death') a += 0.22;
@@ -50,7 +68,7 @@ export function chooseShot({ batter, plan, situation, fielders = [], ballsFaced 
   const thinksHitting = Math.abs(rx(plan.atStumps?.x ?? 1)) < 0.2 && (plan.atStumps?.y ?? 1) < 0.85;
 
   // Value of a wicket in runs: high for cautious batters, low when slogging.
-  const W = 26 * Math.pow(1 - intent, 1.5) + 3;
+  const W = (26 * Math.pow(1 - intent, 1.5) + 3) * (situation?.format === 'test' ? TEST_BATTING.wicketValue : 1);
   let best = null;
   for (const id of CANDIDATES) {
     const sh = SHOTS[id];

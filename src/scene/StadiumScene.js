@@ -425,11 +425,15 @@ export class StadiumScene {
 
   buildFeatures() {
     const gb = new GeoBuilder();
-    // Sightscreens (dark, for the white ball) at both ends
+    // Sightscreens at both ends: dark behind a white ball, white behind a red one (Tests)
+    const screens = new GeoBuilder();
     for (const z of [68.5, -68.5]) {
-      gb.box(15, 7.5, 0.4, '#1d222b', [0, 3.75 + 0.6, z]);
+      screens.box(15, 7.5, 0.4, '#ffffff', [0, 3.75 + 0.6, z]);
       for (const x of [-6.5, 0, 6.5]) gb.box(0.25, 0.6, 0.25, '#555c66', [x, 0.3, z]);
     }
+    this.sightMat = new THREE.MeshLambertMaterial({ vertexColors: true, color: '#1d222b' });
+    this.root.add(screens.build(this.sightMat));
+    this.setSightscreens(this.sightKind || 'black');
     // Scoreboard structure at the +z end
     const sbZ = 86, sbY = 15;
     gb.box(30, 2, 3, '#3a414c', [0, sbY - 8.6, sbZ + 1]);
@@ -475,6 +479,12 @@ export class StadiumScene {
   updateScoreboard(info) { this.scoreboard.draw(info); }
 
   setCrowdTeamColor(color) { this.teamCrowdColor = color; }
+
+  /** 'black' for the white ball, 'white' for the red ball. */
+  setSightscreens(kind = 'black') {
+    this.sightKind = kind === 'white' ? 'white' : 'black';
+    if (this.sightMat) this.sightMat.color.set(this.sightKind === 'white' ? '#f2f2ec' : '#1d222b');
+  }
 
   /** Net practice: show the green net lane around the pitch and empty the stands (no crowd at practice). */
   setNets(on) {

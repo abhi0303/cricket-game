@@ -5,6 +5,7 @@ import { MatchEngine } from './MatchEngine.js';
 import { generateCpuTeam } from './TeamManager.js';
 import { ensureBowler, buildDeliverySim } from './MatchSim.js';
 import { RNG } from '../utils/Random.js';
+import { ballWear } from '../scene/BallLook.js';
 
 export class DemoController {
   constructor({ stadium, view, cameras }) {
@@ -41,6 +42,8 @@ export class DemoController {
     if (e.needsBowler()) { this.overCount++; ensureBowler(e, this.rng); }
     this.stadium.setEnds(this.overCount % 2);
     this.sim = buildDeliverySim(e, { rng: this.rng });
+    this.view.setLook({ whites: false, ball: 'white', wear: ballWear('white', e.innings.legalBalls / 6) });
+    this.stadium.setSightscreens('black');
     this.view.bind(this.sim, { battingTeam: e.battingTeam, bowlingTeam: e.bowlingTeam });
     this.deadTimer = 0;
   }

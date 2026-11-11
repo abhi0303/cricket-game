@@ -6,7 +6,9 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { getClip, emptyPose, copyPose, blendPose, JOINTS, CONTACT_T, SWEET, BAT_LEN } from './Animations.js';
 import { jerseyBackTexture, emblemTexture } from './Textures.js';
-import { BONES, PARENT, OFFSET, LIMB, HIP_HEIGHT, buildBody, buildHelmet, buildCap, buildUmpireHat, buildBat, shade } from './CharacterGeometry.js';
+import { BONES, PARENT, OFFSET, LIMB, HIP_HEIGHT, buildBody, buildHelmet, buildCap, buildUmpireHat, buildBatHandle, buildBatBlade, shade } from './CharacterGeometry.js';
+import { ballMaterial, setBallEnvironment } from './BallLook.js';
+import { bladeMaterial, batBrandFor, setBatEnvironment } from './BatLook.js';
 
 const DEG = Math.PI / 180;
 // Side-steps when the striker shuffles across the crease: step time (s), foot lift (m), how far a foot may trail
@@ -42,6 +44,8 @@ export function setCharacterEnvironment(renderer) {
   const pm = new THREE.PMREMGenerator(renderer);
   sharedMat.envMap = pm.fromScene(new RoomEnvironment(), 0.04).texture;
   sharedMat.needsUpdate = true;
+  setBallEnvironment(sharedMat.envMap);
+  setBatEnvironment(sharedMat.envMap);
   pm.dispose();
 }
 
@@ -64,13 +68,16 @@ const cached = (key, make) => { if (!cache.has(key)) cache.set(key, make()); ret
 
 export function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
 
-const ballGeo = new THREE.SphereGeometry(0.05, 10, 8);
-const ballMat = new THREE.MeshLambertMaterial({ color: '#f7f5ee' });
+const ballGeo = new THREE.SphereGeometry(0.05, 20, 14);
+// Test whites: cream shirt and trousers, with the team colour kept for the trim, cap and helmet.
+const WHITES = { shirt: '#f3f1e9', trousers: '#ebe7da' };
+const luminance = hex => { const n = parseInt(hex.slice(1, 7), 16); return (0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255; };
 const emblemCache = new Map();
 
 export class PlayerModel {
   /**
-   * @param {object} o  { player, team: {primary, secondary, short, emblem}, role: 'batter'|'fielder'|'keeper'|'umpire', withBat, shadows, quality }
+   * @param {object} o  { player, team: {primary, secondary, short, emblem}, role: 'batter'|'fielder'|'keeper'|'umpire', withBat, shadows, quality,
+   *                      whites (Test kit) }
    */
   constructor(o) {
     const team = o.team || { primary: '#888888', secondary: '#ffffff' };
@@ -80,10 +87,13 @@ export class PlayerModel {
     const pick = (arr, k) => arr[Math.floor(seed / k) % arr.length];
     const umpire = o.role === 'umpire';
     const gear = o.role === 'batter' ? 'batter' : o.role === 'keeper' ? 'keeper' : umpire ? 'umpire' : 'fielder';
+    const whites = !!o.whites && !umpire;
+    // a trim that shows on cream: the team colour, or a dark navy if the team colour is too pale
+    const whiteTrim = luminance(team.primary) > 0.72 ? '#1d2a4d' : team.primary;
     this.kit = {
-      shirt: umpire ? UMPIRE_SHIRT : team.primary,
-      trousers: umpire ? '#1d1f25' : shade(team.primary, -0.12),
-      trim: umpire ? '#1d2433' : team.secondary,
+      shirt: umpire ? UMPIRE_SHIRT : whites ? WHITES.shirt : team.primary,
+      trousers: umpire ? '#1d1f25' : whites ? WHITES.trousers : shade(team.primary, -0.12),
+      trim: umpire ? '#1d2433' : whites ? whiteTrim : team.secondary,
       skin: pick(SKINS, 1),
       hair: pick(HAIR, 7),
       hairStyle: umpire ? 'short' : pick(STYLES, 13),
@@ -133,20 +143,24 @@ export class PlayerModel {
 
     // --- bat (held via IK, positioned in root space)
     if (o.withBat) {
-      this.bat = new THREE.Mesh(cached(`bat:${team.primary}:${q}`, () => buildBat(shade(team.primary, -0.2), q)), mat);
-      this.bat.castShadow = o.shadows !== false;
+      // handle (grip in the team colour) + willow blade with the maker's stickers
+      this.bat = new THREE.Group();
       this.bat.matrixAutoUpdate = false;
+      this.batBrand = batBrandFor(o.player?.id, hashStr);
+      const handle = new THREE.Mesh(cached(`bathandle:${team.primary}:${q}`, () => buildBatHandle(shade(team.primary, -0.2), q)), mat);
+      const blade = new THREE.Mesh(cached(`batblade:${q}`, () => buildBatBlade(q)), bladeMaterial(this.batBrand, quality === 'low' ? 'low' : 'high'));
+      for (const m of [handle, blade]) { m.castShadow = o.shadows !== false; this.bat.add(m); }
       this.root.add(this.bat);
     }
     // --- ball in the bowling hand
-    this.ball = new THREE.Mesh(ballGeo, ballMat);
+    this.ball = new THREE.Mesh(ballGeo, ballMaterial());
     this.ball.visible = false;
     this.b.handR.add(this.ball);
     this.ball.position.set(0.024, -0.085, 0.004);
 
     // --- shirt prints: name + number on the back, team emblem on the chest
     if (o.player && !umpire && o.showNumber !== false) {
-      const t = jerseyBackTexture(o.player.name, o.player.number, team.secondary);
+      const t = jerseyBackTexture(o.player.name, o.player.number, whites ? whiteTrim : team.secondary);
       const plane = new THREE.Mesh(new THREE.PlaneGeometry(0.27, 0.27), new THREE.MeshLambertMaterial({ map: t, transparent: true, depthWrite: false }));
       plane.position.set(0, 0.06, -0.119);
       plane.rotation.y = Math.PI;

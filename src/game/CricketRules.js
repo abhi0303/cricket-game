@@ -52,7 +52,7 @@ function bowlerStats(inn, id) {
  * @param {number} o.maxOvers
  * @param {number|null} o.target   runs needed to win (2nd innings), or null
  */
-export function createInnings({ number = 1, battingTeam, bowlingTeam, battingOrder, maxOvers, target = null, maxWickets = null }) {
+export function createInnings({ number = 1, battingTeam, bowlingTeam, battingOrder, maxOvers, target = null, maxWickets = null, freeHits = true }) {
   if (!battingOrder || battingOrder.length < 2) throw new Error('Batting order needs at least two players');
   const batters = {};
   battingOrder.forEach((id, i) => { batters[id] = newBatterStats(i); });
@@ -63,7 +63,9 @@ export function createInnings({ number = 1, battingTeam, bowlingTeam, battingOrd
     battingTeam,
     bowlingTeam,
     battingOrder: battingOrder.slice(),
-    maxOvers,
+    maxOvers: maxOvers ?? null,           // null: no limit (Test cricket: the match clock ends it)
+    freeHits: freeHits !== false,         // free hit after a no-ball (limited overs, if switched on)
+    ballStart: 0,                         // legal ball at which the ball in use was new
     maxWickets: maxWickets ?? battingOrder.length - 1,
     target,
     runs: 0,
@@ -95,6 +97,7 @@ export function totalExtras(inn) {
 }
 
 export function ballsRemaining(inn) {
+  if (inn.maxOvers == null) return Infinity;
   return Math.max(0, inn.maxOvers * BALLS_PER_OVER - inn.legalBalls);
 }
 
@@ -249,8 +252,8 @@ export function applyBall(inn, ball) {
     else { inn.striker = survivor; inn.nonStriker = incoming; }
   }
 
-  // --- free hit carries to the next ball after a no-ball (and stays through wides)
-  inn.freeHit = b.extra === 'noball' || (inn.freeHit && b.extra === 'wide');
+  // --- free hit carries to the next ball after a no-ball (and stays through wides); not in Tests or when switched off
+  inn.freeHit = inn.freeHits !== false && (b.extra === 'noball' || (inn.freeHit && b.extra === 'wide'));
 
   // --- log
   const label = ballLabel({ ...b, dismissal }, runs, b.extra === 'wide' ? 1 + runs : runs);
@@ -261,7 +264,7 @@ export function applyBall(inn, ball) {
   // --- end of innings?
   if (inn.wickets >= inn.maxWickets) endInnings(inn, 'allout', events);
   else if (inn.target != null && inn.runs >= inn.target) endInnings(inn, 'target', events);
-  else if (inn.legalBalls >= inn.maxOvers * BALLS_PER_OVER) endInnings(inn, 'overs', events);
+  else if (inn.maxOvers != null && inn.legalBalls >= inn.maxOvers * BALLS_PER_OVER) endInnings(inn, 'overs', events);
 
   // --- end of over
   if (legal && inn.legalBalls % BALLS_PER_OVER === 0) {
@@ -275,6 +278,14 @@ export function applyBall(inn, ball) {
     }
     events.push({ type: 'overComplete', over: inn.overs.length });
   }
+  return events;
+}
+
+/** The batting side declares (Test cricket). */
+export function declareInnings(inn) {
+  if (inn.complete) throw new Error('Innings already complete');
+  const events = [];
+  endInnings(inn, 'declared', events);
   return events;
 }
 

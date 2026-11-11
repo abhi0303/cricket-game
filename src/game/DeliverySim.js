@@ -7,7 +7,7 @@
 import { planDelivery, simulateBattedBall, launchVelocity, PITCH, BALL_R } from './BallPhysics.js';
 import { resolveShot, contactZ, BATTER_X, STANCE_Z, SHOTS, GUARD, shotFromInput, describeShot } from './ShotModel.js';
 import { keeperPosition } from './FieldPlacements.js';
-import { chooseShot, sampleTimingError, runDecision, batterIntent, pickGap, assistAim } from '../ai/BattingAI.js';
+import { chooseShot, sampleTimingError, runDecision, batterIntent, pickGap, assistAim, TEST_BATTING } from '../ai/BattingAI.js';
 import { chooseThrowEnd, isSafe, END_Z, CREASE_Z, BAT_REACH } from '../ai/FieldingAI.js';
 import { dismissalAllowed } from './CricketRules.js';
 import { diff } from './Difficulty.js';
@@ -42,9 +42,12 @@ export function timeToReach(d, v, a = FIELDER_ACCEL) {
  * from it, and a ball they move across to reach isn't a wide: it has to be wide of where they stand and of
  * their normal guard.
  */
-export function isWideLine(p, guard = 0) {
-  return p.x > PITCH.wideOff + Math.max(0, guard) || p.x < PITCH.wideLeg + Math.min(0, guard) || p.y > PITCH.headHeight;
+export function isWideLine(p, guard = 0, test = false) {
+  // Test umpires give the batter more room: only balls clearly out of reach are wides.
+  const off = test ? TEST_WIDE.off : PITCH.wideOff, leg = test ? TEST_WIDE.leg : PITCH.wideLeg;
+  return p.x > off + Math.max(0, guard) || p.x < leg + Math.min(0, guard) || p.y > PITCH.headHeight;
 }
+export const TEST_WIDE = { off: 1.15, leg: -0.95 };
 
 export class DeliverySim {
   /**
@@ -67,6 +70,7 @@ export class DeliverySim {
     };
     this.situation = o.situation || {};
     this.freeHit = !!o.freeHit;
+    this.testMatch = !!o.testMatch;
     this.ballsFaced = o.ballsFaced || 0;
     this.strikerP = o.striker;
     this.nonStrikerP = o.nonStriker;
@@ -384,7 +388,7 @@ export class DeliverySim {
     if (dec.shotId === 'leave') { this.shot = { ...dec, pressT: this.t, leave: true }; this.emit('shotStart', { shotId: 'leave', foot: 'back', lead: 0.1 }); return; }
     const z = contactZ(dec.shotId, dec.foot, dec.stepOut);
     const tc = this.tRelease + (this.plan.path.timeAtZ(z) ?? 0.5);
-    const err = sampleTimingError({ batter: this.strikerP, plan: this.plan, rng: this.rng, difficulty: this.difficulty, isCpuVsUser: this.vsUser });
+    const err = sampleTimingError({ batter: this.strikerP, plan: this.plan, rng: this.rng, difficulty: this.difficulty, isCpuVsUser: this.vsUser }) * (this.testMatch ? TEST_BATTING.timing : 1);
     const lead = SWING_LEAD * this.deliveryScale;
     const pressT = Math.max(this.t, tc - lead + err * this.deliveryScale);
     this.shot = { ...dec, pressT, cpuErr: err };
@@ -438,7 +442,7 @@ export class DeliverySim {
     const bouncedBefore = !!this.plan.bounce && this.plan.bounce.t <= tRel;
     const ctx = this.control.bat === 'user'
       ? { windowMult: this.D.userWindow, edgeMult: this.D.userEdge, power: this.shot.power, precision: this.shot.precision }
-      : { windowMult: 1, edgeMult: this.vsUser ? this.D.cpuBatEdge : 1, power: this.shot.power, precision: this.shot.precision };
+      : { windowMult: 1, edgeMult: (this.vsUser ? this.D.cpuBatEdge : 1) * (this.testMatch ? TEST_BATTING.edgeMult : 1), power: this.shot.power, precision: this.shot.precision };
     const res = resolveShot({
       shotId: this.shot.shotId, dirDeg: this.shot.dirDeg, foot: this.shot.foot, stepOut: this.shot.stepOut, guard: this.guard,
       timingError: errReal, batter: this.strikerP, bowler: this.bowlerP, plan: this.plan,
@@ -569,7 +573,7 @@ export class DeliverySim {
     const tCr = P.timeAtZ(PITCH.popping);
     if (tCr != null) {
       const c = P.at(tCr).p;
-      if (isWideLine(c, g)) {
+      if (isWideLine(c, g, this.testMatch)) {
         this.isWide = !this.noBall;
         if (this.isWide) this.schedule(Math.max(this.t, this.tRelease + tCr), () => this.emit('wide'));
       }
@@ -662,6 +666,8 @@ export class DeliverySim {
         const air = (fb == null || ti < fb) && !this.bat.bouncedAtStart;
         if (p.y > (air ? 2.6 : 1.3)) continue;
         if (air && p.y < 0.12) continue;
+        // The keeper catches what comes back to him: not a ball played forward past the batter.
+        if (air && f.isKeeper && p.z < PITCH.half - 0.4) continue;
         const d = Math.hypot(p.x - f.x, p.z - f.z);
         // Hard-hit balls are harder to reach: less dive, a little less reach.
         const hs = Math.hypot(path.v[i].x, path.v[i].z);

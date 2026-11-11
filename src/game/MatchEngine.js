@@ -3,12 +3,19 @@
 
 import {
   createInnings, applyBall, eligibleBowlers, setBowler, oversString, runRate, requiredRunRate,
-  ballsRemaining, runsRequired, BALLS_PER_OVER, maxOversPerBowler,
+  ballsRemaining, runsRequired, BALLS_PER_OVER, maxOversPerBowler, declareInnings,
 } from './CricketRules.js';
 import { canBowl, BOWLING_TYPES, ROLE } from './PlayerAttributes.js';
 import { reconcileBattingOrder, validatePlayingXI } from './TeamManager.js';
 
 const SAVE_VERSION = 2;
+
+// Test cricket: the minimum overs in a day, the overs lost when an innings changes over (10 minutes),
+// when the fielding side may take a new ball, and the follow-on margin for the length of the match.
+export const TEST = { oversPerDay: 90, days: 5, changeoverBalls: 12, newBallOvers: 80 };
+export function followOnMargin(days) { return days >= 5 ? 200 : days >= 3 ? 150 : days === 2 ? 100 : 75; }
+const ordinal = n => ['1st', '2nd', '3rd', '4th'][n - 1] || `${n}th`;
+export { ordinal };
 
 /** Snapshot of a team for one match: only the XI travels with the match. */
 export function teamSnapshot(team) {
@@ -46,9 +53,11 @@ export class MatchEngine {
     const winner = toss.winner;
     const other = snaps.find(t => t.id !== winner).id;
     const battingFirst = toss.decision === 'bat' ? winner : other;
+    const cfg = { overs: 5, difficulty: 'normal', format: 'limited', freeHit: true, ...config };
+    if (cfg.format === 'test') { cfg.days = cfg.days || TEST.days; cfg.oversPerDay = cfg.oversPerDay || TEST.oversPerDay; cfg.freeHit = false; }
     this.state = {
       version: SAVE_VERSION,
-      config: { overs: 5, difficulty: 'normal', ...config },
+      config: cfg,
       teams: snaps,
       toss: { ...toss },
       battingFirst,
@@ -58,6 +67,8 @@ export class MatchEngine {
       fatigue: {},
       result: null,
       ballsBowled: 0,
+      // Test match clock: day of the match and balls used today (legal balls plus changeovers).
+      test: cfg.format === 'test' ? { day: 1, dayBalls: 0, followOn: false, followOnOption: null } : null,
     };
     this.startInnings();
   }
@@ -71,6 +82,7 @@ export class MatchEngine {
 
   // ------------------------------------------------------------------ accessors
   get config() { return this.state.config; }
+  get isTest() { return this.state.config.format === 'test'; }
   get phase() { return this.state.phase; }
   get innings() { return this.state.innings[this.state.current] || null; }
   get inningsIndex() { return this.state.current; }
@@ -103,24 +115,46 @@ export class MatchEngine {
   }
 
   // ------------------------------------------------------------------ flow
+  /** Runs a team has scored in all its innings so far. */
+  teamTotal(teamId) {
+    return this.state.innings.filter(i => i.battingTeam === teamId).reduce((sum, i) => sum + i.runs, 0);
+  }
+
+  get maxInnings() { return this.isTest ? 4 : 2; }
+
+  /** Who bats in innings idx (0-based). Tests: 1st/2nd as tossed, 3rd the side that batted first unless it enforced the follow-on. */
+  battingTeamFor(idx) {
+    const s = this.state;
+    const other = s.teams.find(t => t.id !== s.battingFirst).id;
+    if (idx === 0) return s.battingFirst;
+    if (idx === 1) return other;
+    if (idx === 2) return s.test?.followOn ? s.innings[1].battingTeam : s.innings[0].battingTeam;
+    const batted = s.innings.slice(0, 3).map(i => i.battingTeam);
+    return s.teams.map(t => t.id).find(id => batted.filter(x => x === id).length < 2);
+  }
+
   startInnings() {
     const s = this.state;
-    if (s.current >= 1) throw new Error('Both innings already started');
     const idx = s.current + 1;
-    const batId = idx === 0 ? s.battingFirst : s.teams.find(t => t.id !== s.battingFirst).id;
+    if (idx >= this.maxInnings) throw new Error('All innings already started');
+    const batId = this.battingTeamFor(idx);
     const bowlId = s.teams.find(t => t.id !== batId).id;
-    const target = idx === 1 ? s.innings[0].runs + 1 : null;
+    let target = null;
+    if (!this.isTest && idx === 1) target = s.innings[0].runs + 1;
+    if (this.isTest && idx === 3) target = this.teamTotal(bowlId) - this.teamTotal(batId) + 1;
     s.innings.push(createInnings({
       number: idx + 1,
       battingTeam: batId,
       bowlingTeam: bowlId,
       battingOrder: this.team(batId).battingOrder,
-      maxOvers: s.config.overs,
+      maxOvers: this.isTest ? null : s.config.overs,
       target,
+      freeHits: !this.isTest && s.config.freeHit !== false,
     }));
     s.current = idx;
     s.phase = 'innings';
     s.fatigue = {};
+    if (s.test) s.test.followOnOption = null;
   }
 
   needsBowler() {
@@ -129,7 +163,7 @@ export class MatchEngine {
 
   eligibleBowlers() {
     const ids = this.bowlingOptions().map(p => p.id);
-    return eligibleBowlers(this.innings, ids, this.config.overs);
+    return eligibleBowlers(this.innings, ids, this.isTest ? Infinity : this.config.overs);
   }
 
   setBowler(id) {
@@ -141,7 +175,7 @@ export class MatchEngine {
     return b ? b.balls / BALLS_PER_OVER : 0;
   }
 
-  maxOversPerBowler() { return maxOversPerBowler(this.config.overs); }
+  maxOversPerBowler() { return this.isTest ? Infinity : maxOversPerBowler(this.config.overs); }
 
   fatigueOf(id) { return this.state.fatigue[id] || 0; }
 
@@ -163,11 +197,29 @@ export class MatchEngine {
       }
     }
 
+    if (this.isTest) this.testClock(inn, ball, events);
+    return this.afterBall(inn, events);
+  }
+
+  /** Shared end-of-ball handling: innings end, result, the day's play. */
+  afterBall(inn, events) {
     let inningsComplete = false;
     let matchComplete = false;
     if (inn.complete) {
       inningsComplete = true;
-      if (this.state.current === 0) {
+      if (this.isTest) {
+        const r = this.testResult();
+        if (r) { this.state.phase = 'complete'; this.state.result = r; matchComplete = true; }
+        else {
+          this.state.phase = 'break';
+          const T = this.state.test;
+          T.dayBalls += TEST.changeoverBalls;   // ten minutes between innings
+          if (this.state.current === 1) {
+            const lead = this.teamTotal(this.state.innings[0].battingTeam) - this.teamTotal(inn.battingTeam);
+            if (lead >= followOnMargin(this.config.days)) T.followOnOption = { team: this.state.innings[0].battingTeam, lead };
+          }
+        }
+      } else if (this.state.current === 0) {
         this.state.phase = 'break';
       } else {
         this.state.phase = 'complete';
@@ -175,13 +227,87 @@ export class MatchEngine {
         matchComplete = true;
       }
     }
-    return { events, inningsComplete, matchComplete };
+    // Tests: stumps once the day's overs are bowled (at the end of an over, or at an innings change).
+    let stumps = null;
+    if (this.isTest && !matchComplete) {
+      const T = this.state.test;
+      const overDone = inn.complete || events.some(e => e.type === 'overComplete');
+      if (overDone && T.dayBalls >= this.config.oversPerDay * BALLS_PER_OVER) {
+        stumps = { type: 'stumps', day: T.day };
+        if (T.day >= this.config.days) {
+          this.state.phase = 'complete';
+          this.state.result = { winner: null, type: 'draw', margin: 0, text: 'Match drawn' };
+          matchComplete = true;
+          stumps.final = true;
+        } else {
+          T.day++;
+          T.dayBalls = 0;
+          this.state.fatigue = {};   // a night's rest
+        }
+        events.push(stumps);
+      }
+    }
+    return { events, inningsComplete, matchComplete, stumps };
   }
 
-  /** Called by the UI after the innings-break screen. */
-  beginSecondInnings() {
+  /** Tests: the day's clock and the new ball (taken as soon as it's due, after 80 overs). */
+  testClock(inn, ball, events) {
+    if (ball.extra) return;
+    this.state.test.dayBalls++;
+    if (!inn.complete && inn.legalBalls % BALLS_PER_OVER === 0 && inn.legalBalls - (inn.ballStart || 0) >= TEST.newBallOvers * BALLS_PER_OVER) {
+      inn.ballStart = inn.legalBalls;
+      events.push({ type: 'newBall', over: inn.legalBalls / BALLS_PER_OVER });
+    }
+  }
+
+  /** Tests: the batting side declares its innings closed. */
+  declare() {
+    if (!this.isTest) throw new Error('Declarations are only for Test matches');
+    if (this.phase !== 'innings') throw new Error('No innings in progress');
+    if (this.state.current >= 3) throw new Error('The fourth innings cannot be declared');
+    const inn = this.innings;
+    return this.afterBall(inn, declareInnings(inn));
+  }
+
+  /** Called by the UI after the innings-break screen. followOn: the side ahead enforces the follow-on (Tests). */
+  beginNextInnings({ followOn = false } = {}) {
     if (this.phase !== 'break') throw new Error('Not at the innings break');
+    if (this.state.test) this.state.test.followOn = !!(followOn && this.state.test.followOnOption && this.state.current === 1);
     this.startInnings();
+  }
+
+  /** Kept for the limited-overs flow and older callers. */
+  beginSecondInnings(opts) { this.beginNextInnings(opts); }
+
+  /** Test result once it's decided by the innings (time running out is handled by the clock). */
+  testResult() {
+    const s = this.state, idx = s.current, inn = this.innings;
+    const name = id => this.team(id).name;
+    if (idx === 2) {
+      // The side batting third has batted twice; still behind once they're out: an innings defeat.
+      const bat = inn.battingTeam, other = inn.bowlingTeam;
+      const short = this.teamTotal(other) - this.teamTotal(bat);
+      if (short > 0) return { winner: other, type: 'innings', margin: short, text: `${name(other)} won by an innings and ${short} run${short === 1 ? '' : 's'}` };
+      return null;
+    }
+    if (idx === 3) {
+      if (inn.runs >= inn.target) {
+        const wl = inn.maxWickets - inn.wickets;
+        return { winner: inn.battingTeam, type: 'wickets', margin: wl, text: `${name(inn.battingTeam)} won by ${wl} wicket${wl === 1 ? '' : 's'}` };
+      }
+      if (inn.runs === inn.target - 1) return { winner: null, type: 'tie', margin: 0, text: 'Match tied' };
+      const m = inn.target - 1 - inn.runs;
+      return { winner: inn.bowlingTeam, type: 'runs', margin: m, text: `${name(inn.bowlingTeam)} won by ${m} run${m === 1 ? '' : 's'}` };
+    }
+    return null;
+  }
+
+  /** Tests: balls left in the match (today's and the remaining days'). */
+  matchBallsLeft() {
+    const T = this.state.test;
+    if (!T) return null;
+    const day = this.config.oversPerDay * BALLS_PER_OVER;
+    return (this.config.days - T.day) * day + Math.max(0, day - T.dayBalls);
   }
 
   computeResult() {
@@ -202,6 +328,7 @@ export class MatchEngine {
   situation() {
     const inn = this.innings;
     if (!inn) return null;
+    if (this.isTest) return this.testSituation(inn);
     const ballsLeft = ballsRemaining(inn);
     return {
       innings: this.state.current + 1,
@@ -218,6 +345,37 @@ export class MatchEngine {
       freeHit: inn.freeHit,
       wicketsLeft: inn.maxWickets - inn.wickets,
       phaseOfInnings: inn.legalBalls < inn.maxOvers * 6 * 0.3 ? 'early' : ballsLeft <= Math.max(6, inn.maxOvers * 6 * 0.25) ? 'death' : 'middle',
+    };
+  }
+
+  testSituation(inn) {
+    const T = this.state.test;
+    const dayLen = this.config.oversPerDay * BALLS_PER_OVER;
+    const ballsLeft = this.matchBallsLeft();
+    const need = runsRequired(inn);
+    const ballAge = (inn.legalBalls - (inn.ballStart || 0)) / BALLS_PER_OVER;
+    return {
+      format: 'test',
+      innings: this.state.current + 1,
+      runs: inn.runs,
+      wickets: inn.wickets,
+      overs: oversString(inn.legalBalls),
+      legalBalls: inn.legalBalls,
+      ballsLeft,
+      maxOvers: null,
+      target: inn.target,
+      need,
+      crr: runRate(inn.runs, inn.legalBalls),
+      rrr: inn.target != null ? (need * BALLS_PER_OVER) / Math.max(1, ballsLeft) : null,
+      freeHit: false,
+      wicketsLeft: inn.maxWickets - inn.wickets,
+      day: T.day,
+      days: this.config.days,
+      session: Math.min(3, 1 + Math.floor(T.dayBalls / (dayLen / 3))),
+      oversLeftToday: Math.max(0, Math.ceil((dayLen - T.dayBalls) / BALLS_PER_OVER)),
+      lead: this.teamTotal(inn.battingTeam) - this.teamTotal(inn.bowlingTeam),
+      ballAge,
+      phaseOfInnings: inn.target != null && ballsLeft <= 60 ? 'death' : ballAge < 15 ? 'early' : 'middle',
     };
   }
 

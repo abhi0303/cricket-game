@@ -68,7 +68,7 @@ export class GameManager {
     try {
       const e = MatchEngine.fromJSON(m.engine);
       const s = e.situation();
-      return `${e.state.teams[0].short} v ${e.state.teams[1].short} · ${e.battingTeam.short} ${s.runs}/${s.wickets} (${s.overs})`;
+      return `${e.state.teams[0].short} v ${e.state.teams[1].short}${e.isTest ? ` · Test, Day ${s.day}` : ''} · ${e.battingTeam.short} ${s.runs}/${s.wickets} (${s.overs})`;
     } catch { return null; }
   }
 
@@ -137,7 +137,7 @@ export class GameManager {
     try {
       engine = new MatchEngine({
         teams: [{ ...this.team, isUser: true }, { ...opp, isUser: false }],
-        config: { overs: this.settings.overs, difficulty: this.settings.difficulty, stadium: this.settings.stadium, timeOfDay: this.settings.timeOfDay },
+        config: { format: this.settings.format === 'test' ? 'test' : 'limited', overs: this.settings.overs, freeHit: this.settings.freeHit !== false, difficulty: this.settings.difficulty, stadium: this.settings.stadium, timeOfDay: this.settings.timeOfDay },
         toss,
       });
     } catch (err) {

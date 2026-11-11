@@ -662,3 +662,65 @@ export function buildBat(grip = '#1f2126', quality = 'high') {
   b.add(roundBox(0, -0.8, 0.0125, 0.096, 0.03, 0.002, 6, 8), shade(grip, 0.25), { rm: RM.shell });
   return b.build();
 }
+
+// ---------------------------------------------------------------- bat, in two parts
+// The handle (rubber grip, cane splice) uses the shared character material; the blade is UV-mapped so it
+// can carry a painted willow texture with the maker's stickers (see BatLook.js).
+// Bat space: y along the bat (top of the handle at 0, toe at -0.85), x across the face, +z the hitting face.
+export const BLADE = { top: -0.29, toe: -0.85 };
+
+export function buildBatHandle(grip = '#1f2126', quality = 'high') {
+  const b = new StaticBuilder();
+  const n = quality === 'low' ? 8 : 12;
+  const handle = [];
+  // ribbed grip: alternate rings a touch thicker, with a smooth cap at the top
+  for (let i = 0; i <= 14; i++) { const y = -i * 0.0205; handle.push({ y, rx: 0.0178 + (i % 2) * 0.0013, rz: 0.0178 + (i % 2) * 0.0013 }); }
+  b.add(loft(handle, { segs: n }), grip, { rm: RM.rubber });
+  b.add(ellipsoid(0, 0.002, 0, 0.019, 0.01, 0.019, 8, 4), shade(grip, 0.1), { rm: RM.rubber });
+  // the splice where the cane handle meets the blade
+  b.add(roundBox(0, -0.3, 0.002, 0.024, 0.05, 0.026, 3, 6), '#cdb27a', { rm: RM.willow });
+  return b.build();
+}
+
+/** The willow blade with UVs: u runs once round the cross-section (back half 0..0.5, face 0.5..1), v from shoulder to toe. */
+export function buildBatBlade(quality = 'high') {
+  const blade = (y, half, spine, edgeT) => ({ y, rx: half, spine, edgeT });
+  const secs = [blade(-0.29, 0.03, 0.03, 0.018), blade(-0.32, 0.052, 0.034, 0.02), blade(-0.42, 0.054, 0.04, 0.02), blade(-0.5, 0.054, 0.05, 0.021),
+    blade(-0.58, 0.054, 0.058, 0.022), blade(-0.66, 0.054, 0.059, 0.023), blade(-0.72, 0.054, 0.055, 0.024), blade(-0.78, 0.054, 0.049, 0.024),
+    blade(-0.82, 0.053, 0.042, 0.024), blade(-0.845, 0.049, 0.034, 0.022), blade(-0.85, 0.044, 0.03, 0.02)];
+  const segs = quality === 'low' ? 16 : 32;
+  const pos = [], uv = [], idx = [];
+  const ring = segs + 1;   // the first vertex is repeated at the end so the texture wraps cleanly
+  for (const s of secs) {
+    const v = (BLADE.top - s.y) / (BLADE.top - BLADE.toe);
+    for (let i = 0; i <= segs; i++) {
+      const a = Math.PI + (i / segs) * Math.PI * 2;            // start on the -x edge, round the back, then the face
+      const c = Math.cos(a), sn = Math.sin(a);
+      const x = sgnPow(c, 0.5) * s.rx;
+      const t = 1 - (x / s.rx) ** 2;
+      const face = sn >= 0;
+      const z = face ? sgnPow(sn, 0.35) * 0.012 : -(s.edgeT * 0.5 + (s.spine - s.edgeT * 0.5) * t) * sgnPow(-sn, 0.6);
+      const u = i <= segs / 2 ? 0.25 * (1 + x / s.rx) : 0.5 + 0.25 * (1 - x / s.rx);
+      pos.push(x, s.y, z);
+      uv.push(Math.min(1, Math.max(0, u)), v);
+    }
+  }
+  for (let r = 0; r < secs.length - 1; r++) for (let i = 0; i < segs; i++) {
+    const a = r * ring + i, b = a + 1, c = a + ring, d = c + 1;
+    idx.push(a, b, c, b, d, c);
+  }
+  // end caps (shoulder and toe), mapped to the edge colour of the texture
+  const cap = (r, flip) => {
+    const ci = pos.length / 3;
+    pos.push(0, secs[r].y, -0.01); uv.push(0.0, r ? 0.995 : 0.005);
+    for (let i = 0; i < segs; i++) { const a = r * ring + i, b = a + 1; if (flip) idx.push(ci, b, a); else idx.push(ci, a, b); }
+  };
+  cap(0, true); cap(secs.length - 1, false);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  g.computeBoundingSphere();
+  return g;
+}

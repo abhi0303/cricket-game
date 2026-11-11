@@ -8,8 +8,10 @@ import { PHYSICS, lengthDef, defaultLengthTarget, clampToLength } from './Physic
 import { FIELD_PRESETS } from './FieldPlacements.js';
 import { BOWLING_TYPES } from './PlayerAttributes.js';
 import { RNG, clamp } from '../utils/Random.js';
-import { HUD, renderOverlay, hideOverlay, pauseHTML, bowlerSelectHTML, inningsBreakHTML, resultHTML, scorecardHTML, settingsHTML, skipHTML, simulatingHTML, updateSimulating } from '../ui/HUD.js';
-import { simulateBalls, chaseFinishReached } from './SkipSim.js';
+import { HUD, renderOverlay, hideOverlay, pauseHTML, bowlerSelectHTML, inningsBreakHTML, resultHTML, scorecardHTML, settingsHTML, skipHTML, simulatingHTML, updateSimulating, testBreakHTML, stumpsHTML } from '../ui/HUD.js';
+import { simulateBalls, simulateAcross, untilStumps, chaseFinishReached } from './SkipSim.js';
+import { aiShouldDeclare, aiEnforceFollowOn } from '../ai/CaptainAI.js';
+import { ballWear } from '../scene/BallLook.js';
 import { esc, toast, moveFocus, adjustFocused } from '../ui/UI.js';
 import { BATTING_VIEWS, BOWLING_VIEWS, viewEnd, normalizeBattingView, normalizeBowlingView } from '../scene/CameraPoses.js';
 import { applyBattingInput, SHOT_HINTS } from './BattingInput.js';
@@ -32,6 +34,8 @@ export class MatchController {
     this.lastResult = null;
     this.auto = false;        // auto-play: the AI plays the human's side
     this.simulating = null;   // skip-ahead in progress
+    this.captainPicks = false; // the AI chooses the human's bowlers (they still bowl) for the rest of the innings
+    this.lastSession = null;
   }
 
   get settings() { return this.app.settings; }
@@ -52,7 +56,7 @@ export class MatchController {
     this.settings.battingCamera = normalizeBattingView(this.settings.battingCamera ?? this.settings.camera);
     this.settings.bowlingCamera = normalizeBowlingView(this.settings.bowlingCamera);
     this.app.cameras.setViews(this.settings.battingCamera, this.settings.bowlingCamera);
-    this.app.stadium.updateScoreboard({ title: `${e.state.teams[0].short} v ${e.state.teams[1].short}`, subtitle: `${e.config.overs}-over match` });
+    this.app.stadium.updateScoreboard({ title: `${e.state.teams[0].short} v ${e.state.teams[1].short}`, subtitle: e.isTest ? `Test match · Day ${e.state.test.day}` : `${e.config.overs}-over match` });
     this.hud.hudRoot = this.app.hudRoot;
     this.app.hudRoot.onclick = (ev) => { if (ev.target.closest('[data-hud="pause"]')) this.pause(); };
     this.nextBall();
@@ -76,7 +80,7 @@ export class MatchController {
     const inn = e.innings;
     this.hud.setTeams(e.battingTeam, e.bowlingTeam);
     if (e.needsBowler()) {
-      if (inn.bowlingTeam === this.userTeamId && !this.auto) return this.showBowlerSelect();
+      if (inn.bowlingTeam === this.userTeamId && !this.auto && !this.captainPicks) return this.showBowlerSelect();
       const id = chooseBowler({ engine: e, eligible: e.eligibleBowlers(), rng: this.rng });
       e.setBowler(id);
       const p = e.player(id);
@@ -118,10 +122,12 @@ export class MatchController {
       }
       sim.setSpec(spec);
     }
+    this.applyLook();
     app.view.bind(sim, { battingTeam: e.battingTeam, bowlingTeam: e.bowlingTeam });
     app.view.aim.userHidden = !this.settings.aimMarker;
     app.cameras.set(userBatting ? 'batting' : 'bowling', { phase: 'aim' }, true);
-    this.hud.setEnd(`${esc(sim.bowlerP.name)} from the ${END_NAMES[endIdx]}`);
+    const sit = e.situation();
+    this.hud.setEnd(`${sim.bowlerP.name} from the ${END_NAMES[endIdx]}${e.isTest ? ` · Day ${sit.day}, session ${sit.session} · ${sit.oversLeftToday} ov left today` : ''}`);
     this.hud.updateScore(e, this.lastResult);
     this.hud.timing(null);
     this.hud.hideBanner();
@@ -133,6 +139,18 @@ export class MatchController {
     this.replayed = false;
     app.sound.crowd(0.1);
   }
+
+  /** Kit, ball and sightscreens for the format: whites and a red ball for Tests. The ball gets grubbier with age. */
+  applyLook() {
+    const e = this.engine, inn = e.innings;
+    const ball = e.isTest ? 'red' : 'white';
+    const age = inn ? (inn.legalBalls - (inn.ballStart || 0)) / 6 : 0;
+    this.app.view.setLook({ whites: e.isTest, ball, wear: ballWear(ball, age) });
+    this.app.stadium.setSightscreens(e.isTest ? 'white' : 'black');
+  }
+
+  /** Does the computer captain the batting side right now (it declares for them)? */
+  cpuCaptains(teamId) { return teamId !== this.userTeamId || this.auto; }
 
   // ------------------------------------------------------------------ main loop
   update(dt) {
@@ -363,7 +381,8 @@ export class MatchController {
       crr: (inn.legalBalls ? inn.runs * 6 / inn.legalBalls : 0).toFixed(2),
       line1: inn.striker && s ? `${e.player(inn.striker).name}  ${s.runs} (${s.balls})` : '',
       line2: inn.nonStriker && n ? `${e.player(inn.nonStriker).name}  ${n.runs} (${n.balls})` : '',
-      footer: inn.target != null ? `TARGET ${inn.target} · NEED ${Math.max(0, inn.target - inn.runs)}` : (r?.highlight ? { six: 'SIX!', four: 'FOUR!', wicket: 'WICKET!' }[r.highlight] : ''),
+      footer: inn.target != null ? `TARGET ${inn.target} · NEED ${Math.max(0, inn.target - inn.runs)}` : r?.highlight ? { six: 'SIX!', four: 'FOUR!', wicket: 'WICKET!' }[r.highlight]
+        : e.isTest && e.phase === 'innings' ? (() => { const l = e.situation().lead; return `DAY ${e.state.test.day} · ${l > 0 ? `LEAD ${l}` : l < 0 ? `TRAIL ${-l}` : 'LEVEL'}`; })() : '',
       highlight: r?.highlight === 'wicket',
     });
   }
@@ -374,11 +393,28 @@ export class MatchController {
     const ev = this.pendingEvents;
     this.pendingEvents = null;
     this.hud.hideBanner();
-    if (ev?.events.some(x => x.type === 'overComplete') && !ev.inningsComplete) {
-      const inn = this.engine.innings;
+    const e = this.engine;
+    let stumps = ev?.stumps && !ev.stumps.final ? ev.stumps : null;
+    if (e.isTest && e.phase === 'innings' && !stumps) {
+      // The computer captain may declare at the end of an over.
+      if (this.cpuCaptains(e.innings.battingTeam) && aiShouldDeclare(e)) {
+        const inn = e.innings, name = e.battingTeam.name;
+        const out = e.declare();
+        toast(`<b>${esc(name)} declare</b> at ${inn.runs}/${inn.wickets}`, 3200);
+        this.app.saveMatch(e);
+        if (out.stumps && !out.stumps.final) stumps = out.stumps;
+      } else if (ev?.events.some(x => x.type === 'newBall')) toast('<b>New ball</b> taken', 2000);
+      const sit = e.phase === 'innings' ? e.situation() : null;
+      if (sit && this.lastSession && sit.session !== this.lastSession && sit.session > 1) {
+        toast(`${sit.session === 2 ? 'Lunch' : 'Tea'}, Day ${sit.day}: ${esc(e.battingTeam.short)} ${sit.runs}/${sit.wickets}`, 2600);
+      }
+      this.lastSession = sit?.session ?? null;
+    } else if (ev?.events.some(x => x.type === 'overComplete') && !ev.inningsComplete && !e.isTest) {
+      const inn = e.innings;
       const last = inn.overs[inn.overs.length - 1];
-      toast(`End of over ${inn.overs.length}: ${last.runs} run${last.runs === 1 ? '' : 's'} · ${this.engine.battingTeam.short} ${inn.runs}/${inn.wickets}`, 2200);
+      toast(`End of over ${inn.overs.length}: ${last.runs} run${last.runs === 1 ? '' : 's'} · ${e.battingTeam.short} ${inn.runs}/${inn.wickets}`, 2200);
     }
+    if (stumps) return this.showStumps(stumps.day);
     this.nextBall();
   }
 
@@ -465,6 +501,7 @@ export class MatchController {
       if (act === 'resume') this.resume();
       else if (act === 'autoplay') { this.resume(); this.setAutoPlay(!this.auto); }
       else if (act === 'skip') this.showSkip();
+      else if (act === 'declare') this.declareInnings();
       else if (act === 'scorecard') renderOverlay(this.overlay, `<h2>Scorecard</h2><div class="sc-scroll">${scorecardHTML(this.engine)}</div><div class="ov-actions"><button class="btn primary" data-ov="back">Back</button></div>`, () => this.showPause());
       else if (act === 'controls') renderOverlay(this.overlay, this.app.controlsSummaryHTML(), () => this.showPause());
       else if (act === 'settings') this.showSettings();
@@ -499,6 +536,16 @@ export class MatchController {
     this.state = 'overlay';
     renderOverlay(this.overlay, bowlerSelectHTML(e, suggested, this.userFieldPreset), (act, btn) => {
       if (act === 'autoBowl') { hideOverlay(this.overlay); this.setAutoPlay(true); this.nextBall(); return; }
+      if (act === 'captain') {
+        const fp = this.overlay.querySelector('#fieldPreset');
+        if (fp) this.userFieldPreset = fp.value;
+        this.captainPicks = true;
+        e.setBowler(suggested);
+        hideOverlay(this.overlay);
+        toast('The captain picks your bowlers for the rest of this innings (you still bowl)', 2800);
+        this.setupBall();
+        return;
+      }
       if (act === 'skip') {
         renderOverlay(this.overlay, skipHTML(e), (a) => { if (a === 'back') this.showBowlerSelect(); else this.skipChoice(a); });
         return;
@@ -512,10 +559,65 @@ export class MatchController {
     });
   }
 
+  /** The player declares (Tests). The ball in progress, if any, is abandoned. */
+  declareInnings() {
+    const e = this.engine;
+    this.overlay.onchange = this.overlay.oninput = null;
+    hideOverlay(this.overlay);
+    this.app.view.stopReplay();
+    const inn = e.innings;
+    const out = e.declare();
+    toast(`<b>${esc(e.team(inn.battingTeam).name)} declare</b> at ${inn.runs}/${inn.wickets}`, 3200);
+    this.app.saveMatch(e);
+    this.pendingEvents = null;
+    if (out.stumps && !out.stumps.final) return this.showStumps(out.stumps.day);
+    this.nextBall();
+  }
+
+  /** Stumps at the end of a day in a Test. */
+  showStumps(day) {
+    const e = this.engine;
+    this.state = 'overlay';
+    this.app.view.stopReplay();
+    this.app.saveMatch(e);
+    this.updateScoreboard(null);
+    this.app.stadium.updateScoreboard({ title: `STUMPS · DAY ${day}`, subtitle: `${e.state.teams[0].short} v ${e.state.teams[1].short}` });
+    this.lastSession = null;
+    renderOverlay(this.overlay, stumpsHTML(e, day), (act) => {
+      if (act === 'nextDay') { hideOverlay(this.overlay); toast(`<b>Day ${e.state.test.day}</b>`, 1800); this.nextBall(); }
+      else if (act === 'simDay') this.skipAhead({ title: `Simulating Day ${day + 1}`, stop: untilStumps(e), across: true, thenStumps: true });
+      else if (act === 'result') this.skipAhead({ title: 'Simulating to the result', across: true });
+      else if (act === 'scorecard') renderOverlay(this.overlay, `<h2>Scorecard</h2><div class="sc-scroll">${scorecardHTML(e)}</div><div class="ov-actions"><button class="btn primary" data-ov="back">Back</button></div>`, () => this.showStumps(day));
+      else if (act === 'quit') { this.app.saveMatch(e); this.app.exitMatch(); }
+    });
+  }
+
+  /** Test innings break: the follow-on choice (when there is one), then who bats next. */
+  showTestBreak(followOn = null) {
+    const e = this.engine, opt = e.state.test.followOnOption;
+    if (opt && !e.team(opt.team).isUser && followOn == null) followOn = aiEnforceFollowOn(e);
+    renderOverlay(this.overlay, testBreakHTML(e, { followOn }), (act) => {
+      if (act === 'enforce' || act === 'batAgain') { this.showTestBreak(act === 'enforce'); return; }
+      if (!['next', 'watch', 'simInnings', 'result'].includes(act)) return;
+      e.beginNextInnings({ followOn: !!followOn });
+      if (e.state.test.followOn && e.inningsIndex === 2) toast(`<b>Follow-on</b>: ${esc(e.battingTeam.name)} bat again`, 2600);
+      this.app.saveMatch(e);
+      this.lastResult = null;
+      if (act === 'next' || act === 'watch') {
+        hideOverlay(this.overlay);
+        if (act === 'watch') this.setAutoPlay(true);
+        this.nextBall();
+      } else if (act === 'simInnings') this.skipAhead({ title: 'Simulating the innings' });
+      else this.skipAhead({ title: 'Simulating to the result', across: true });
+    });
+  }
+
   showInningsBreak() {
     this.state = 'overlay';
     this.auto = false;   // the chase starts under the player's control unless they pick otherwise
+    this.captainPicks = false;
     this.app.sound.crowd(0.3);
+    if (this.engine.isTest) return this.showTestBreak();
     renderOverlay(this.overlay, inningsBreakHTML(this.engine), (act) => {
       if (!['second', 'watch', 'finalPlay', 'finalWatch', 'result'].includes(act)) return;
       this.engine.beginSecondInnings();
@@ -550,6 +652,13 @@ export class MatchController {
 
   /** innings: finish this innings · result: to the end of the match · finalWatch/finalPlay: to the finish of a chase. */
   skipChoice(act) {
+    const e = this.engine;
+    if (e.isTest) {
+      if (act === 'stumps') this.skipAhead({ title: 'Simulating to stumps', stop: untilStumps(e), across: true, thenStumps: true });
+      else if (act === 'innings') this.skipAhead({ title: 'Simulating the innings' });
+      else if (act === 'result') this.skipAhead({ title: 'Simulating to the result', across: true });
+      return;
+    }
     const chase = this.engine.innings?.target != null;
     if (act === 'innings') this.skipAhead({ title: 'Simulating the innings' });
     else if (act === 'result') this.skipAhead({ title: chase ? 'Simulating the chase' : 'Simulating the match' });
@@ -561,7 +670,7 @@ export class MatchController {
    * Stops at the end of the innings or when stop(engine) says so, then carries on: innings break,
    * result, or live play (watched under auto-play if `watch`). "Stop here and play" hands back control.
    */
-  skipAhead({ title, stop = null, watch = false }) {
+  skipAhead({ title, stop = null, watch = false, across = false, thenStumps = false }) {
     const e = this.engine;
     this.app.view.stopReplay();
     this.pendingEvents = null;
@@ -575,30 +684,35 @@ export class MatchController {
     updateSimulating(this.overlay, e);
     const halt = eng => run.stopped || (stop ? stop(eng) : false);
     // About 20 ms a ball (a 20-over innings takes ~2.5 s), then the final score holds for a moment.
+    // Tests are long: simulate a batch of balls per tick (about 1 ms each) so a whole day takes a moment.
+    const batch = e.isTest ? 30 : 1;
     const tick = () => {
       if (this.simulating !== run || this.app.match !== this) return;   // quit or superseded meanwhile
-      const r = simulateBalls(e, this.rng, { stop: halt, maxBalls: 1 });
+      const r = across ? simulateAcross(e, this.rng, { stop: halt, maxBalls: batch }) : simulateBalls(e, this.rng, { stop: halt, maxBalls: batch });
       updateSimulating(this.overlay, e);
-      if (r.inningsOver || !r.balls) setTimeout(() => { if (this.simulating === run) this.finishSkip(watch && !run.stopped); }, r.balls || run.stopped ? 700 : 0);
-      else setTimeout(tick, 20);
+      const done = (across ? r.matchOver : r.inningsOver) || r.balls < batch;
+      if (done) setTimeout(() => { if (this.simulating === run) this.finishSkip(watch && !run.stopped, thenStumps && !run.stopped); }, r.balls || run.stopped ? 700 : 0);
+      else setTimeout(tick, e.isTest ? 0 : 20);
     };
     setTimeout(tick, 150);
   }
 
-  finishSkip(watch) {
+  finishSkip(watch, atStumps = false) {
     const e = this.engine;
     this.simulating = null;
     this.lastResult = null;
     this.app.saveMatch(e);
     this.updateScoreboard(null);
-    if (e.phase === 'break') return this.showInningsBreak();
     if (e.phase === 'complete') return this.showResult();
+    if (atStumps && e.isTest) return this.showStumps(e.state.test.day - 1);
+    if (e.phase === 'break') return this.showInningsBreak();
     hideOverlay(this.overlay);
     this.hud.updateScore(e, null);
     this.auto = !!watch;
     this.nextBall();
     const s = e.situation();
-    const need = s.target != null ? `Final overs: ${esc(e.battingTeam.short)} need <b>${s.need}</b> from <b>${s.ballsLeft}</b> ball${s.ballsLeft === 1 ? '' : 's'}` : `${esc(e.battingTeam.short)} ${s.runs}/${s.wickets} (${s.overs} ov)`;
+    const need = e.isTest ? `Day ${s.day}: ${esc(e.battingTeam.short)} ${s.runs}/${s.wickets} (${s.overs} ov)`
+      : s.target != null ? `Final overs: ${esc(e.battingTeam.short)} need <b>${s.need}</b> from <b>${s.ballsLeft}</b> ball${s.ballsLeft === 1 ? '' : 's'}` : `${esc(e.battingTeam.short)} ${s.runs}/${s.wickets} (${s.overs} ov)`;
     toast(`${need}${watch ? ' · auto-play (pause to take control)' : ''}`, 3800);
   }
 

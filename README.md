@@ -1,6 +1,6 @@
 # Low-Poly Cricket
 
-A playable low-poly 3D cricket game in plain HTML, CSS and JavaScript with Three.js. Build a 15-player squad, pick a legal playing XI, and play a 5, 10 or 20-over match against the computer. You can use the keyboard or a USB/Bluetooth game controller.
+A playable low-poly 3D cricket game in plain HTML, CSS and JavaScript with Three.js. Build a 15-player squad, pick a legal playing XI, and play a 5, 10 or 20-over match or a five-day Test against the computer. You can use the keyboard or a USB/Bluetooth game controller.
 
 **Play online: https://abhi0303.github.io/cricket-game/** (desktop browser recommended: Chrome, Edge, Firefox or Safari).
 
@@ -25,7 +25,7 @@ The cricket rules, squad validation, ball physics, AI, input handling and camera
 npm test          # node --test tests/*.test.js
 ```
 
-There are 126 tests. They cover every squad-composition rule, scoring and extras, strike rotation, over changes, wickets and the next batter, free hits, bowler over limits, target chasing and results. They also run full AI-vs-AI matches in all three formats (checking that runs, balls and wickets always add up), save/resume mid-match, skipping ahead (simulating an innings, stopping exactly at the final overs of a chase), moving across the crease (keys, reach, pads and stumps, wide calls), the controller layout and shot direction in every camera, sprinting and diving for the crease, net practice (fixed and random speeds, the chosen length, line and delivery always bowled, the netting stopping the ball, and what each shot would be worth on the field), the bowling physics (all 10 speeds × 8 lengths, pitching inside the chosen range, bounce direction, travel and reaction times, identical results at 30/60/120 FPS, nothing passing through the bat, body or stumps), timing windows and shot selection, swing and spin direction, gamepad edge detection, dead zones and connect/disconnect, the batting and bowling camera positions (including the TV framing), the field chart's orientation and counts, and the batting animations (footwork, contact positions, the bat keeping its speed through the ball, high finishes).
+There are 139 tests. They cover every squad-composition rule, scoring and extras, Test matches (innings order, stumps and the day's overs, the follow-on, innings wins, chases, ties, declarations, draws on time, the new ball, the Test wide rule, the computer's declarations and Test-like AI scoring), the free-hit switch, strike rotation, over changes, wickets and the next batter, free hits, bowler over limits, target chasing and results. They also run full AI-vs-AI matches in all three formats (checking that runs, balls and wickets always add up), save/resume mid-match, skipping ahead (simulating an innings, stopping exactly at the final overs of a chase), moving across the crease (keys, reach, pads and stumps, wide calls), the controller layout and shot direction in every camera, sprinting and diving for the crease, net practice (fixed and random speeds, the chosen length, line and delivery always bowled, the netting stopping the ball, and what each shot would be worth on the field), the bowling physics (all 10 speeds × 8 lengths, pitching inside the chosen range, bounce direction, travel and reaction times, identical results at 30/60/120 FPS, nothing passing through the bat, body or stumps), timing windows and shot selection, swing and spin direction, gamepad edge detection, dead zones and connect/disconnect, the batting and bowling camera positions (including the TV framing), the field chart's orientation and counts, and the batting animations (footwork, contact positions, the bat keeping its speed through the ball, high finishes).
 
 ### Publishing on GitHub Pages
 
@@ -112,6 +112,24 @@ Nothing is scored, but every ball is graded. You see your timing and shot, and w
 
 The "would have been" result plays the shot out on an open field with the match's own ball flight and fielding rules. The running estimate was fitted to full AI matches: over about 3,000 shots its total runs come within 2% of what the real fielders and runners gave.
 
+### Test matches
+
+Pick **Test match (5 days, 90 overs a day)** as the format in Match Settings.
+
+- **Innings:** two each, with no over limit. An innings ends when the side is all out or declares. The fourth innings chases a target.
+- **Days:** a day is 90 overs, ending at stumps after the over in progress. Ten minutes (two overs) are lost at each change of innings. Lunch and tea are noted on screen, and bowlers are rested overnight.
+- **Results:** a win by runs or wickets, a win by an innings, a tie, or a draw when time runs out at the end of day 5.
+- **Follow-on:** a side 200 or more behind after the first innings can be made to bat again straight away. When you're ahead you choose; the computer enforces it with a lead of 260 or more, or when time is short.
+- **Declare:** use **Pause → Declare** while batting in any of the first three innings. The computer declares when its lead is out of reach in the overs left, or after a very big first-innings total.
+- **Other Test rules:** no free hits, no limit on a bowler's overs (just no two in a row), a new ball after 80 overs, and wides called only when the ball is clearly out of reach.
+- **Look:** both sides wear cream whites (team colour on the trim, cap and helmet) and play with a red ball in front of white sightscreens.
+- **Skipping ahead:** **Pause → Skip ahead** simulates to stumps, to the end of the innings, or to the result. The stumps screen offers the same, and the innings-break screen lets you play, watch, or simulate.
+- **Bowling choice:** **Captain picks the bowlers** on the bowler-choice screen lets the computer choose your bowler each over for the rest of the innings while you still bowl.
+
+The computer bats like a Test side: patient, leaving balls outside off, picking up the pace only when chasing quickly or setting up a declaration. In AI-vs-AI testing a Test innings averages about 290 runs in 90 overs (3.3 an over), with a wicket every 60 or so balls. Most Tests run into day 4 or 5, with wins by runs, wickets and an innings all turning up.
+
+**Free hit after a no-ball** can be switched off for limited-overs matches in Match Settings. Tests never have free hits.
+
 ### Bowling (camera behind your bowler)
 
 Pick a **speed** with **E / Y / △** (faster) and **Q / B / ○** (slower): 150, 145, 140, 130, 125, 115, 100, 95, 85 or 70 km/h. Which speeds are available depends on the bowler's type, pace rating and tiredness. Pick a **length** with **L / RB / R1** and **O / LT / L2**: Yorker, Full Toss, Full, Good, Back of a Length, Short of a Length, Short Ball or Bouncer. A yellow band shows where that length pitches. The stick moves the marker within the band (up/down) and changes the line (left/right). **K / X / □** changes the variation: seam or out/inswing for pace; off/leg break, arm ball/googly, flighted or flatter for spin. **Hold J / A / ✕** to run in, and **release** in the green zone of the meter. Releasing too late oversteps for a no-ball. **Shift / RT** adds pace at the cost of accuracy and stamina. At the start of each over you pick the bowler (fatigue and over limits are shown) and the field.
@@ -142,7 +160,7 @@ Pick a **speed** with **E / Y / △** (faster) and **Q / B / ○** (slower): 150
 - **Players:** each player's role, batting style (Attacker / Defensive / Balanced), technique (front-foot, back-foot, balanced, sweeper), bowling type (fast, fast-medium, medium, off-spin, leg-spin) and nine 1–99 ratings feed directly into gameplay: timing windows, edge and miss risk, shot power, pace, swing and turn, accuracy, stamina, running speed, catching and throwing. In AI-vs-AI testing, attackers strike at about 200 and get out roughly twice as often as defensive batsmen, who strike at about 85.
 - **Ball physics:** the selected speed sets the release velocity (km/h ÷ 3.6), and a drag-aware solver aims the arc at the chosen pitching point. Gravity, air drag and swing act in flight; the bounce contact is exact, with restitution and speed loss set by the length, then seam and turn off the pitch. There's also drag on hit balls, bounces and roll on the outfield, and fours versus sixes at the rope. A perfect shot isn't a guaranteed six: the shot choice, the line and length, the player and the field all matter.
 - **Dismissals:** bowled (including played on), caught (fielders, caught behind, caught and bowled), LBW (pitched outside leg / impact / hitting checks), run out at either end, stumped (dancing down to a spinner) and the rare hit wicket.
-- **Rules:** legal balls and overs, wides (off side, down leg, over head height), front-foot and waist-high no-balls with free hits, byes and leg byes, strike rotation, new batters (including the caught-batter rule), bowler limits (one fifth of the overs each, no consecutive overs), all out / overs / target reached, ties.
+- **Rules:** legal balls and overs, wides (off side, down leg, over head height; wider in Tests), front-foot and waist-high no-balls with free hits (optional; never in Tests), byes and leg byes, strike rotation, new batters (including the caught-batter rule), bowler limits (one fifth of the overs each, no consecutive overs), all out / overs / target reached, ties. Tests add four innings, days and stumps, declarations, the follow-on, innings victories, draws and the new ball.
 - **Computer:** chooses shots by expected runs against wicket risk, reacting to the required run rate, wickets left and the phase of the innings. Its bowling plans depend on the batter and the situation, and its field settings and bowler rotation are rule-based. Running decisions include small misjudgements, so run-outs happen. Difficulty changes reaction-time pressure, timing windows, aim assist, accuracy and how well the computer bats, bowls and catches.
 
 In AI-vs-AI testing at Normal, a T20 averages around 170/6 at about 9 an over, with roughly 16 fours, 5 sixes, 3–4 wides and 1 no-ball per innings. Dismissals split about 62% caught, 22% bowled, 7% LBW, 4% run out, 3% stumped.
@@ -166,9 +184,11 @@ src/game/
   NetsConfig.js, NetsSim.js, NetsController.js   net practice: bowler set-up, the net delivery, the session
   BattingInput.js               the human batter's controls (shared by matches and the nets)
   GameManager.js, DemoController.js (menu background match)
+src/ai/CaptainAI.js             Test captaincy: when to declare and whether to enforce the follow-on
 src/ai/                         BattingAI, BowlingAI (deliveries, bowler choice, fields), FieldingAI
 src/controls/                   Bindings, KeyboardControls, GamepadControls, InputManager
-src/scene/                      StadiumScene, NetArea (green practice nets), Environment, PlayerModel, Animations, MatchView,
+src/scene/                      StadiumScene, NetArea (green practice nets), BallLook (stitched ball and wear), BatLook (bat stickers),
+                                Environment, PlayerModel, Animations, MatchView,
                                 CameraManager + CameraPoses, Textures, GeoBuilder, Renderer,
                                 PhysicsDebug (developer overlay),
                                 CharacterGeometry (sculpted, skinned player meshes and kit),
@@ -211,11 +231,12 @@ A 70 km/h full toss takes 1.03 s to arrive, more than twice as long as a 150 km/
 Every player is one skinned mesh on a shared 17-bone skeleton: hips, spine, chest, neck, head, and shoulder, elbow, wrist, hip, knee and ankle on each side. Each body part is lofted from anatomical cross-sections, and vertices near a joint are weighted to both bones so elbows and knees bend smoothly. The mesh geometry is generated once per kit and shared between players.
 
 - **Kit:** full-sleeve shirts with collars and cuffs, matching trousers with a side stripe, and studded boots. Materials are physically based: matte cloth, satin skin, glossy helmets and metal grilles, with baked shading in the creases and a soft contact shadow under each player.
-- **Batters:** helmet with grille, gloves with padded fingers, tall ridged pads with coloured straps, arm guard, thigh guard and a shaped bat.
+- **Batters:** helmet with grille, gloves with padded fingers, tall ridged pads with coloured straps, arm guard, thigh guard, and a shaped bat. The bat has a ribbed rubber grip in the team colour and a willow blade with grain, darker edges and a rubber toe guard. It carries the maker's stickers (MRF or SG, depending on the player): a small one at the shoulder and a large one near the toe on the face, and a long one down the back. The lettering is drawn in the game's own style, not taken from the real logos.
 - **Keepers:** big webbed gloves and pads; a cap when standing back, a helmet when standing up to spinners.
 - **Fielders and bowlers:** team cap and bare hands with fingers. The bowler holds the ball in the hand.
 - **Umpires:** blue shirt, black trousers and a wide-brimmed hat.
-- **Team kit:** colours, side panels, a chest emblem, and the player's name and number on the back.
+- **Team kit:** colours, side panels, a chest emblem, and the player's name and number on the back. In Tests both sides wear cream whites, with the team colour kept for the trim, name, cap and helmet.
+- **The ball:** stitched leather, red in Tests and white otherwise. It has a raised main seam with six rows of stitching, faint quarter seams and a small gold maker's stamp, and new leather has a polish. As the ball gets older (over 80 overs for a red ball, about 25 for a white one) it loses its shine and picks up light scuffs, specks of mud and the odd grass mark. It spins in flight: backspin with the seam upright for pace, turning about its line of flight for spin, tumbling off the bat and rolling on the grass.
 - **Variety:** each player gets a seeded height, skin tone, hairstyle and facial hair.
 
 Animations include separate fast, medium and spin bowling actions, every batting shot, a play-and-miss reaction, running, fielding (ready, chase, dive, pick-up, catch, throw, celebrate), keeping (crouch, take, stumping) and the umpire signals (out, not out, four, six, wide, no ball, bye).

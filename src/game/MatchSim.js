@@ -5,6 +5,7 @@ import { DeliverySim } from './DeliverySim.js';
 import { assignFielders } from './FieldPlacements.js';
 import { chooseDelivery, chooseBowler, chooseField } from '../ai/BowlingAI.js';
 import { BOWLING_TYPES } from './PlayerAttributes.js';
+import { aiShouldDeclare, aiEnforceFollowOn } from '../ai/CaptainAI.js';
 
 /** Make sure the engine has a bowler for the coming over (AI choice). */
 export function ensureBowler(engine, rng) {
@@ -53,6 +54,7 @@ export function buildDeliverySim(engine, opts) {
     assistRunning: !!opts.assistRunning,
     difficulty: engine.config.difficulty,
     situation,
+    testMatch: engine.isTest,
     freeHit: inn.freeHit,
     ballsFaced: inn.batters[inn.striker]?.balls || 0,
     fatigue: engine.fatigueOf(bowler.id),
@@ -82,11 +84,12 @@ export function simulateBallHeadless(engine, rng, opts = {}) {
 }
 
 /** Play a whole match with the AI on both sides (tests / quick sim). */
-export function simulateMatchHeadless(engine, rng, { maxBalls = 2000 } = {}) {
+export function simulateMatchHeadless(engine, rng, { maxBalls = 4000 } = {}) {
   let n = 0;
   while (engine.phase !== 'complete' && n++ < maxBalls) {
-    if (engine.phase === 'break') { engine.beginSecondInnings(); continue; }
+    if (engine.phase === 'break') { engine.beginNextInnings({ followOn: aiEnforceFollowOn(engine) }); continue; }
     simulateBallHeadless(engine, rng);
+    if (aiShouldDeclare(engine)) engine.declare();
   }
   return engine;
 }

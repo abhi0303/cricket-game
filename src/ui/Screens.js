@@ -316,7 +316,8 @@ export const MatchSetup = {
     return `<div class="panel wide setup">
       <h1>Match Settings</h1>
       <div class="grid3">
-        <label>Format ${sel('overs', [[5, '5 overs'], [10, '10 overs'], [20, '20 overs (T20)']], s.overs)}</label>
+        <label>Format ${sel('overs', [[5, '5 overs'], [10, '10 overs'], [20, '20 overs (T20)'], ['test', 'Test match (5 days, 90 overs a day)']], s.format === 'test' ? 'test' : s.overs)}</label>
+        <label>Free hit after a no-ball ${sel('freeHit', [['true', 'On'], ['false', 'Off']], String(s.freeHit !== false))}${s.format === 'test' ? '<small class="muted">Not used in Tests</small>' : ''}</label>
         <label>Difficulty ${sel('difficulty', Object.entries(DIFFICULTY).map(([k, d]) => [k, d.label]), s.difficulty)}</label>
         <label>Opponent ${sel('opponent', [['random', 'Random computer team'], ...CPU_TEAMS.map(t => [t.name, t.name])], s.opponent)}</label>
         <label>Stadium ${sel('stadium', Object.entries(STADIUMS).map(([k, d]) => [k, d.label]), s.stadium)}</label>
@@ -343,12 +344,13 @@ export const MatchSetup = {
     const s = app.settings;
     const read = () => {
       for (const k of ['overs', 'difficulty', 'opponent', 'stadium', 'timeOfDay', 'tossMode', 'battingCamera', 'bowlingCamera', 'quality']) s[k] = $('#' + k, root).value;
-      s.overs = Number(s.overs);
-      for (const k of ['assistRunning', 'autoReplay', 'aimMarker', 'sound']) s[k] = $('#' + k, root).value === 'true';
+      // the format list mixes over counts with the Test option
+      if (s.overs === 'test') { s.format = 'test'; s.overs = 20; } else { s.format = 'limited'; s.overs = Number(s.overs); }
+      for (const k of ['assistRunning', 'autoReplay', 'aimMarker', 'sound', 'freeHit']) s[k] = $('#' + k, root).value === 'true';
       s.volume = Number($('#volume', root).value);
       app.saveSettings();
     };
-    root.addEventListener('change', read);
+    root.addEventListener('change', e => { read(); if (e.target.id === 'overs') app.render(); });   // the free-hit note follows the format
     root.addEventListener('click', e => {
       const go = e.target.closest('[data-go]');
       if (go) { app.go(go.dataset.go); return; }
@@ -378,7 +380,7 @@ export const Toss = {
       <h1>The Toss</h1>
       <div class="vs"><div><img src="${emblemDataURL(u, 128)}" width="96" height="96" alt=""><b>${esc(u.name)}</b></div><span>VS</span><div><img src="${emblemDataURL(opp, 128)}" width="96" height="96" alt=""><b>${esc(opp.name)}</b></div></div>
       <div class="coin ${s.flipping ? 'flip' : ''} ${s.result || ''}"><span>${s.result === 'tails' ? 'T' : 'H'}</span></div>
-      <div class="vs-info">${app.settings.overs} overs · ${esc(DIFFICULTY[app.settings.difficulty].label)} · ${esc(STADIUMS[app.settings.stadium].label)} · ${esc(TIMES[app.settings.timeOfDay].label)}</div>
+      <div class="vs-info">${app.settings.format === 'test' ? 'Test match · 5 days' : `${app.settings.overs} overs`} · ${esc(DIFFICULTY[app.settings.difficulty].label)} · ${esc(STADIUMS[app.settings.stadium].label)} · ${esc(TIMES[app.settings.timeOfDay].label)}</div>
       ${body}
       <div class="actions center"><button class="btn ghost" data-act="back">Back</button></div>
     </div>`;

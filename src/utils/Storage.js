@@ -16,6 +16,8 @@ export const Storage = {
 
 export const DEFAULT_SETTINGS = {
   overs: 5,
+  format: 'limited',      // 'limited' (5/10/20 overs) or 'test' (5 days, 90 overs a day)
+  freeHit: true,          // free hit after a no-ball (limited overs only)
   difficulty: 'normal',
   stadium: 'harbour',
   timeOfDay: 'day',
