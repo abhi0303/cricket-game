@@ -85,6 +85,20 @@ export function cinematicCam(kind, ctx = {}) {
       return { pos: [Math.sin(a) * 9, 2.4, STRIKER_Z - 1 + Math.cos(a) * 9], target: [0, 1.0, STRIKER_Z - 1], fov: 40 };
     }
     case 'bowlerEnd': return { pos: [-2.5, 2.2, BOWLER_END_Z - 6], target: [0, 1, STRIKER_Z], fov: 26 };
+    // ball tracking: high behind the bowler down the pitch, then in front of the striker's stumps
+    case 'hawkEye': return { pos: [0, 2.7, BOWLER_END_Z - 2.6], target: [0, 0.45, 6.5], fov: 21 };
+    case 'hawkEyeStumps': return { pos: [0.45, 0.85, STRIKER_Z - 4.5], target: [0, 0.42, STRIKER_Z], fov: 24 };
+    // bowled: low on the off side just in front of the stumps (clear of a keeper standing up)
+    case 'stumpSide': return { pos: [1.45, 0.42, STRIKER_Z - 1.15], target: [0, 0.36, STRIKER_Z], fov: 34 };
+    // LBW from square on the off side, low: pad, ball and stumps in one frame
+    case 'sideOnLow': return { pos: [7.5, 0.75, 9.1], target: [0, 0.45, 9.5], fov: 30 };
+    // following the ball from beside its path (catches and boundaries)
+    case 'ballCam': return { pos: [ball.x * 0.55 + 3.5, 3.4 + Math.max(0, ball.y) * 0.4, STRIKER_Z + (ball.z - STRIKER_Z) * 0.55 + 2], target: [ball.x, Math.max(0.3, ball.y), ball.z], fov: 34 };
+    // side-on at the popping crease where a run-out or stumping happened
+    case 'creaseCam': {
+      const z = ctx.end === 'nonStriker' ? -8.84 : 8.84;
+      return { pos: [6.5, 1.3, z], target: [0, 0.55, z], fov: 34 };
+    }
     case 'crowd': return { pos: [0, 12, 30], target: [0, 12, 90], fov: 50 };
     default: return { pos: [0, 30, 60], target: [0, 0, 0], fov: 45 };
   }

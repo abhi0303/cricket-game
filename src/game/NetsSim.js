@@ -180,6 +180,7 @@ export class NetsDeliverySim extends DeliverySim {
     if (o.realTime) { this.deliveryScale = 1; this.scale = 1; }
     this.control.running = 'none';
     this.projection = null;
+    this.perfectUmpire = true;                     // practice feedback: LBW is given exactly as ball tracking has it
   }
 
   setupActors() {

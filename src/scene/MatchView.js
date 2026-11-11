@@ -3,10 +3,14 @@
 // and records frames for instant replays. It never changes the simulation.
 import * as THREE from 'three';
 import { PlayerModel } from './PlayerModel.js';
-import { CONTACT_T, RELEASE_T, copyPose, emptyPose } from './Animations.js';
+import { CONTACT_T, RELEASE_T, TAKE_CT, copyPose, emptyPose } from './Animations.js';
 import { PITCH } from '../game/BallPhysics.js';
 import { lengthDef } from '../game/PhysicsConfig.js';
 import { BATTER_X, STANCE_Z } from '../game/ShotModel.js';
+import { takeYaw } from '../game/DeliverySim.js';
+
+// How each kind of take is animated (see Animations.js TAKE_CT for when the hands meet the ball).
+const TAKE_CLIP = { catchHigh: 'takeHigh', catchChest: 'takeChest', catchLow: 'takeLow', pickup: 'takePickup', barrier: 'takeBarrier' };
 import { ballMaterial, setBallLook } from './BallLook.js';
 
 const _spinAxis = new THREE.Vector3(), _q = new THREE.Quaternion();
@@ -124,7 +128,7 @@ export class MatchView {
     this.shotView = null;
     this.deliverStart = null;
     this.releaseSeen = false;
-    this.recording = { frames: [], start: null, done: false };
+    this.recording = { frames: [], start: null, done: false, stumps: [], marks: {} };
     this.stumpAt = null;
     for (const m of this.active) { m.setBatAim(null); m.setShuffle(null); }
     this.update(0);
@@ -152,12 +156,19 @@ export class MatchView {
         if (miss) { m.batAim.miss = miss; m.batAim.missT = CONTACT_T - 0.02; }
         break;
       }
-      case 'stumpsHit':
-        this.stadium.breakStumps(ev.end, ev.runout ? 0.8 : 1.2);
+      case 'stumpsHit': {
+        const strength = ev.runout ? 0.8 : 1.2;
+        this.stadium.breakStumps(ev.end, strength);
+        this.recording?.stumps.push({ t: ev.t, end: ev.end, strength });   // replays break them at the same moment
         if (ev.end === 'striker' && (ev.stumping || (ev.runout && this.sim.ball.holder === this.sim.keeper.id))) this.stumpAt = ev.t;
         break;
-      case 'release': if (this.recording) this.recording.start = this.recording.start ?? ev.t; break;
+      }
       default: break;
+    }
+    // key moments for the replay director
+    if (this.recording && ['release', 'contact', 'padHit', 'bodyHit', 'catch', 'boundary', 'wicket', 'stumpsHit', 'keeperCollect'].includes(ev.type)) {
+      const m = this.recording.marks;
+      if (m[ev.type] == null) m[ev.type] = ev.t ?? sim.t;
     }
   }
 
@@ -191,6 +202,7 @@ export class MatchView {
     const sim = this.sim;
     if (!sim) return;
     const t = sim.t;
+    this.updateHolder();
     for (const [actor, v] of this.view) this.syncActor(actor, v, t, dt);
     this.syncBall(dt);
     // Aim marker for the human bowler
@@ -208,6 +220,24 @@ export class MatchView {
       this.band.position.set(0, 0.02, PITCH.half - (a + b) / 2);
     }
     this.record(t);
+  }
+
+  /** Show or hide the players and the ball (ball tracking shows only the pitch, stumps and the graphic). */
+  setActorsVisible(on) {
+    for (const m of this.active) m.root.visible = on && !(this.hideUmpire && m.player?.id === 'ump1');
+    this.ball.visible = on && this.ball.visible;
+    this.ballShadow.visible = on && this.ballShadow.visible;
+    this.trail.visible = on && this.trail.visible;
+    this.pitchMark.material.opacity = on ? this.pitchMark.material.opacity : 0;
+  }
+
+  /** A fielder with the ball has it in the hand (not floating beside them) until it's thrown. */
+  updateHolder() {
+    const sim = this.sim, b = sim.ball;
+    const held = b.holder && (b.state === 'held' || b.state === 'pickup' || (b.state === 'thrown' && b.throw && sim.t < b.throw.start));
+    const holder = held ? this.view.get(sim.fielderById(b.holder))?.model : null;
+    for (const m of this.active) { m.holdingBall = m === holder; if (m === holder) m.showBall = true; }
+    this.holderModel = holder;
   }
 
   setShotArrow(sx, sy, visible) {
@@ -268,7 +298,7 @@ export class MatchView {
           clip = { fast: 'deliverFast', 'fast-medium': 'deliverMedium', medium: 'deliverMedium', 'off-spin': 'deliverOffSpin', 'leg-spin': 'deliverLegSpin' }[sim.bowlerP.bowlingType] || 'deliverMedium';
           ct = (t - this.deliverStart) * (RELEASE_T / stride);
         } else if (sim.phase === 'ready') { clip = 'standField'; ct = t; yaw = 0; }
-        else ({ clip, ct } = this.fieldClip(actor, t));
+        else { const fc = this.fieldClip(actor, t, v); clip = fc.clip; ct = fc.ct; if (fc.yaw != null) yaw = fc.yaw; }
         if (clip === 'celebrate') clip = 'celebrateBowler';
         break;
       }
@@ -280,12 +310,12 @@ export class MatchView {
           const arriving = sim.phase === 'flight' && sim.tBallAtBatter != null && t > sim.tBallAtBatter - rise;
           clip = arriving ? 'collect' : 'crouch';
           ct = arriving ? t - (sim.tBallAtBatter - rise) : t;
-        } else ({ clip, ct } = this.fieldClip(actor, t));
+        } else { const fc = this.fieldClip(actor, t, v); clip = fc.clip; ct = fc.ct; if (fc.yaw != null) yaw = fc.yaw; }
         if (sim.phase !== 'inplay' && sim.phase !== 'dead') yaw = Math.PI;
         if (actor.target && sim.phase === 'flight') { x = actor.x + (actor.target.x - actor.x) * Math.min(1, (t - (sim.tBallAtBatter ?? t) + 0.4) * 2); }
         break;
       }
-      case 'fielder': ({ clip, ct } = this.fieldClip(actor, t)); break;
+      case 'fielder': { const fc = this.fieldClip(actor, t, v); clip = fc.clip; ct = fc.ct; if (fc.yaw != null) yaw = fc.yaw; break; }
       case 'umpire': {
         if (actor.action === 'signal' && actor.signal) { clip = 'sig_' + actor.signal; ct = actor.actionT; }
         else { clip = 'umpire'; ct = t; }
@@ -300,8 +330,39 @@ export class MatchView {
     m.play(clip, ct, Math.max(dt, 0.001));
   }
 
-  fieldClip(actor, t) {
-    const a = actor.action;
+  /** Which way a fielder faces for a take and (for a dive) which side he goes, worked out once per take. */
+  takeLook(actor, g, v) {
+    if (!v.takeLook || v.takeLook.t !== g.t) {
+      const yaw = takeYaw(actor, g.p, g.v);
+      const ox = g.p.x - actor.x, oz = g.p.z - actor.z;
+      const side = ox * Math.cos(yaw) - oz * Math.sin(yaw) >= 0 ? 1 : -1;   // + = the fielder's left
+      v.takeLook = { t: g.t, yaw, clip: g.kind === 'dive' ? (side > 0 ? 'takeDiveL' : 'takeDiveR') : TAKE_CLIP[g.kind] };
+    }
+    return v.takeLook;
+  }
+
+  fieldClip(actor, t, v = null) {
+    const a = actor.action, sim = this.sim;
+    if (v) {
+      // Taking the ball now (or just taken it): the take clip from the moment the hands met it. The catcher
+      // finishes taking the catch before joining the celebrations.
+      const done = actor.takeDone;
+      const celebrating = a === 'celebrate' && actor.actionT < 0.75 && sim.ball.holder === actor.id;
+      if (done && (['catch', 'dive', 'pickup'].includes(a) || celebrating)) {
+        const look = this.takeLook(actor, done, v);
+        return { clip: look.clip, ct: TAKE_CT[look.clip] + actor.actionT, yaw: look.yaw };
+      }
+      // About to take it: start the move so the hands meet the ball as it arrives, facing it.
+      const g = actor.take;
+      if (g && actor.chasing && sim.ball.state === 'batted') {
+        const lead = g.t - t;
+        const ct = TAKE_CT[g.kind === 'dive' ? 'takeDiveL' : TAKE_CLIP[g.kind]];
+        if (lead >= 0 && lead <= ct) {
+          const look = this.takeLook(actor, g, v);
+          return { clip: look.clip, ct: ct - lead, yaw: look.yaw };
+        }
+      }
+    }
     if (a === 'run') return { clip: this.sim.ball.holder === actor.id ? 'runBall' : 'run', ct: t };
     if (a === 'ready') return { clip: this.sim.phase === 'inplay' || this.sim.phase === 'dead' ? 'standField' : 'ready', ct: t };
     if (a === 'crouch') return { clip: 'crouch', ct: t };
@@ -312,10 +373,11 @@ export class MatchView {
   syncBall(dt) {
     const sim = this.sim;
     const b = sim.ball;
-    const inHand = b.state === 'hand';
+    // In the bowler's hand before release, or in a fielder's hand once gathered: drawn in that hand.
+    const inHand = b.state === 'hand' || !!this.holderModel;
     this.ball.visible = !inHand;
     const bowlerModel = this.view.get(sim.bowler)?.model;
-    if (bowlerModel) bowlerModel.showBall = inHand;
+    if (bowlerModel) bowlerModel.showBall = b.state === 'hand' || this.holderModel === bowlerModel;
     if (!inHand && b.p) {
       this.ball.position.set(b.p.x, Math.max(0.05, b.p.y), b.p.z);
       this.spinBall(b, dt);
@@ -369,36 +431,79 @@ export class MatchView {
   }
 
   // ------------------------------------------------------------------ replay
+  /** Record a frame (from just before the delivery stride until shortly after the ball is dead). */
   record(t) {
-    const rec = this.recording;
-    if (!rec || rec.start == null || rec.done) return;
+    const rec = this.recording, sim = this.sim;
+    if (!rec || rec.done) return;
+    if (rec.start == null) {
+      const stride = sim.phase === 'runup' && sim.releaseDelay - (t - sim.tRunStart) < 0.9;
+      if (!stride && sim.phase !== 'flight') return;
+      rec.start = t;
+    }
     if (rec.frames.length && t - rec.frames[rec.frames.length - 1].t < 1 / 40) return;
-    if (this.sim.phase === 'dead' && t - (this.sim.deadAt ?? t) > 1.2) { rec.done = true; return; }
-    if (rec.frames.length > 900) { rec.done = true; return; }
+    if (sim.phase === 'dead' && t - (sim.deadAt ?? t) > 1.2) { rec.done = true; return; }
+    if (rec.frames.length > 1100) { rec.done = true; return; }
     const actors = [];
     for (const m of this.active) actors.push({ m, x: m.root.position.x, z: m.root.position.z, yaw: m.root.rotation.y, pose: copyPose(emptyPose(), m.pose), ball: m.ball.visible });
-    rec.frames.push({ t, ball: this.ball.visible ? [this.ball.position.x, this.ball.position.y, this.ball.position.z] : null, actors });
+    rec.frames.push({ t, ball: this.ball.visible ? [this.ball.position.x, this.ball.position.y, this.ball.position.z] : null, q: this.ball.quaternion.toArray(), actors });
   }
 
   hasReplay() { return !!(this.recording && this.recording.frames.length > 10); }
 
-  /** Start playing back the last delivery. Returns duration in seconds of playback. */
-  startReplay({ speed = 0.55, fromEnd = 3.5 } = {}) {
+  /** Key moments of the recorded ball (sim time): release, contact, padHit, catch, boundary, wicket, stumps. */
+  get replayMarks() { return this.recording?.marks || {}; }
+  get replayRange() { const f = this.recording?.frames; return f?.length ? [f[0].t, f[f.length - 1].t] : null; }
+
+  /**
+   * Play back the last delivery. segments: [{ from, to, speed, kind, label }] in sim time, played in order
+   * (e.g. the broadcast angle, then a slow-motion close-up). Without segments: the last few seconds.
+   * Returns the playback length in seconds.
+   */
+  startReplay({ speed = 0.55, fromEnd = 3.5, segments = null } = {}) {
     if (!this.hasReplay()) return 0;
-    const f = this.recording.frames;
-    const t1 = f[f.length - 1].t;
-    const t0 = Math.max(f[0].t, t1 - fromEnd - 1.2);
-    this.replay = { frames: f, t: t0, t0, t1, speed };
-    this.trailHist = [];
-    return (t1 - t0) / speed;
+    const [first, last] = this.replayRange;
+    let segs = segments?.length ? segments : [{ from: Math.max(first, last - fromEnd - 1.2), to: last, speed }];
+    segs = segs.map(s => ({ ...s, from: Math.max(first, Math.min(last, s.from)), to: Math.max(first, Math.min(last, s.to)) })).filter(s => s.to > s.from + 0.05);
+    if (!segs.length) return 0;
+    this.replay = { frames: this.recording.frames, segs, i: 0, t: segs[0].from, events: this.recording.stumps || [] };
+    this.enterSegment();
+    return segs.reduce((d, s) => d + (s.to - s.from) / s.speed, 0);
   }
 
-  stopReplay() { this.replay = null; }
+  /** The stumps as they stood at the start of the segment (whole, unless they were already broken). */
+  enterSegment() {
+    const r = this.replay, seg = r.segs[r.i];
+    this.stadium.resetStumps();
+    r.applied = new Set();
+    r.events.forEach((e, k) => { if (e.t <= seg.from) { this.stadium.breakStumps(e.end, e.strength); r.applied.add(k); } });
+    if (r.applied.size) this.stadium.settleStumps();
+    this.stadium.stumpTimeScale = seg.speed;   // bails fly in slow motion too
+    this.trailHist = [];
+  }
+
+  /** Leave the stumps as the ball left them. */
+  stopReplay() {
+    const r = this.replay;
+    if (r) {
+      this.stadium.resetStumps();
+      for (const e of r.events) this.stadium.breakStumps(e.end, e.strength);
+      if (r.events.length) this.stadium.settleStumps();
+      this.stadium.stumpTimeScale = 1;
+    }
+    this.replay = null;
+  }
+
+  get replaySegment() { return this.replay ? this.replay.segs[this.replay.i] : null; }
 
   updateReplay(dt) {
     const r = this.replay;
-    r.t += dt * r.speed;
-    if (r.t > r.t1) r.t = r.t1;
+    let seg = r.segs[r.i];
+    r.t += dt * seg.speed;
+    if (r.t >= seg.to) {
+      if (r.i < r.segs.length - 1) { r.i++; seg = r.segs[r.i]; r.t = seg.from; this.enterSegment(); }
+      else r.t = seg.to;
+    }
+    r.events.forEach((e, k) => { if (!r.applied.has(k) && e.t <= r.t) { this.stadium.breakStumps(e.end, e.strength); r.applied.add(k); } });
     const f = r.frames;
     let i = 0;
     while (i < f.length - 1 && f[i + 1].t <= r.t) i++;
@@ -407,10 +512,12 @@ export class MatchView {
       a.m.root.visible = true;
       a.m.setPosition(a.x, a.z, a.yaw);
       a.m.applyPose(a.pose);
+      a.m.ball.visible = a.ball;
     }
     if (fr.ball) {
       this.ball.visible = true;
       this.ball.position.set(...fr.ball);
+      if (fr.q) this.ball.quaternion.fromArray(fr.q);
       this.ballShadow.visible = true;
       this.ballShadow.position.set(fr.ball[0], 0.018, fr.ball[2]);
       this.trailHist.push(fr.ball.slice());
@@ -419,5 +526,5 @@ export class MatchView {
     this.replayBall = fr.ball ? { x: fr.ball[0], y: fr.ball[1], z: fr.ball[2] } : null;
   }
 
-  get replayDone() { return !this.replay || this.replay.t >= this.replay.t1; }
+  get replayDone() { const r = this.replay; return !r || (r.i === r.segs.length - 1 && r.t >= r.segs[r.i].to); }
 }

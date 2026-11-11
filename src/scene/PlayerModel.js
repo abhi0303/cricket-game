@@ -366,7 +366,8 @@ export class PlayerModel {
       this.solveLeg('R', p.ftR, w);
     }
     this.groundFeet(p);
-    this.ball.visible = p.ballHand === 'R' && this.showBall !== false;
+    // the ball sits in the right hand: when the pose says so, or whenever this player is holding it
+    this.ball.visible = (p.ballHand === 'R' || this.holdingBall) && this.showBall !== false;
     if (this.bat) {
       if (p.bat) {
         this.bat.visible = true;

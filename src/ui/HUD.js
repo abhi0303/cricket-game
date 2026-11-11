@@ -12,9 +12,10 @@ const HUD_COMMON = `
       <div class="banner hidden"><div class="b-main"></div><div class="b-sub"></div></div>
       <div class="timing hidden"><div class="t-bar"><i class="z late"></i><i class="z good"></i><i class="z perfect"></i><i class="z good2"></i><i class="z early"></i><b class="t-mark"></b></div><div class="t-label"></div></div>
       <div class="meter hidden"><div class="m-type"></div><div class="m-bar"><i class="m-good"></i><i class="m-perfect"></i><i class="m-over"></i><b class="m-cursor"></b></div><div class="m-power"><i></i></div><div class="m-label"></div></div>
-      <div class="prompt hidden"></div>`;
+      <div class="prompt hidden"></div>
+      <div class="replay-tag hidden"></div>`;
 
-const HUD_TOP_LEFT = `<div class="hud-tl"><button class="hud-btn" data-hud="pause" aria-label="Pause">❚❚</button><div class="hud-cap"><span class="hud-end"></span><span class="hud-last"></span></div></div>`;
+const HUD_TOP_LEFT = `<div class="hud-tl"><button class="hud-btn" data-hud="pause" aria-label="Pause">❚❚</button><div class="hud-cap"><span class="hud-end"></span><span class="hud-last"></span><span class="hud-drs"></span></div></div>`;
 
 export class HUD {
   /** nets: the net-practice layout (bowler card and session stats instead of field chart and scorecard). */
@@ -49,6 +50,7 @@ export class HUD {
         <div class="hints"></div>
       </div>${HUD_COMMON}
       <div class="auto-badge hidden"><b>AUTO-PLAY</b> <span>The AI is playing for you · pause to take control</span></div>
+      <div class="drs hidden"><div class="drs-head"></div><div class="drs-sub"></div><div class="drs-rows"></div><div class="drs-final"></div></div>
       <div class="tvbar">
         <div class="tv-emb tv-bat"><img alt=""></div>
         <div class="tv-team">
@@ -200,6 +202,19 @@ export class HUD {
   }
 
   prompt(html) { this.show('.prompt', !!html); if (html) this.set('.prompt', html); }
+  /** The third umpire's panel: o = { head, sub, rows: [{label, value, tone}], final: {text, sub, tone} } or null to hide. */
+  drs(o) {
+    this.show('.drs', !!o);
+    if (!o) return;
+    this.set('.drs-head', esc(o.head));
+    this.set('.drs-sub', esc(o.sub || ''));
+    this.set('.drs-rows', (o.rows || []).map(r => `<div class="drs-row"><span>${esc(r.label)}</span><b class="${r.tone}">${esc(r.value)}</b></div>`).join(''));
+    this.set('.drs-final', o.final ? `<div class="drs-dec ${o.final.tone}">${esc(o.final.text)}</div><div class="drs-why">${esc(o.final.sub)}</div>` : '');
+  }
+  /** Reviews left for each side, e.g. "DRS  MCC ●●● · RBR ●●○". */
+  drsCount(html) { this.set('.hud-drs', html); }
+
+  replayTag(text) { this.show('.replay-tag', !!text); if (text) this.set('.replay-tag', `<i></i>${esc(text)}`); }
   autoBadge(on) { this.show('.auto-badge', on); }
   hints(input, profile, items) { this.set('.hints', hintBar(input, profile, items)); }
 }
@@ -236,6 +251,18 @@ export function pauseHTML(engine, { auto = false, userBowling = false } = {}) {
       <button class="btn" data-ov="settings">Settings</button>
       <button class="btn ghost" data-ov="quit">Save &amp; quit to menu</button>
     </div>`;
+}
+
+/** Offer the player a review of an LBW decision. */
+export function reviewPromptHTML({ onField, side, left, seconds }) {
+  const out = onField === 'out';
+  return `<h2 class="${out ? 'loss' : ''}">${out ? 'OUT · LBW' : 'NOT OUT · LBW appeal turned down'}</h2>
+    <p class="muted">${side === 'bat' ? 'Your batter has been given out leg before wicket.' : 'The umpire has turned down your LBW appeal.'} Send it to the third umpire? You have <b>${left}</b> review${left === 1 ? '' : 's'} left this innings (a review you lose on a clear decision is gone; umpire's call keeps it).</p>
+    <div class="ov-actions">${optionButtons([
+      ['review', 'Review (DRS)', 'Ball tracking decides', true],
+      ['accept', side === 'bat' ? 'Walk off' : 'Accept the decision', ''],
+    ])}</div>
+    <div class="review-timer" style="--secs:${seconds}s"><i></i></div>`;
 }
 
 /** Net practice pause menu. */

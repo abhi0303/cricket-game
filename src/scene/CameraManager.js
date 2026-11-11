@@ -42,7 +42,7 @@ export class CameraManager {
           : bowlingCam(ctx.bowler || { x: 1.4, z: -26 }, this.opts.phase || 'runup', this.bowlingView === 'behindBowlerHigh' ? 'high' : 'standard');
         break;
       case 'follow': p = followCam(ctx.ball || { x: 0, y: 1, z: 0 }, this.opts.end || 'striker'); break;
-      case 'cinematic': p = cinematicCam(this.opts.kind, { ...ctx, t: this.modeT, exit: this.opts.exit }); break;
+      case 'cinematic': p = cinematicCam(this.opts.kind, { ...ctx, t: this.modeT, exit: this.opts.exit, end: this.opts.end }); break;
       default: p = battingCam();
     }
     const nudge = [this.look.x * 1.5, this.look.y * 0.8, 0];

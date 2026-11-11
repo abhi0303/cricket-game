@@ -65,6 +65,7 @@ export function createInnings({ number = 1, battingTeam, bowlingTeam, battingOrd
     battingOrder: battingOrder.slice(),
     maxOvers: maxOvers ?? null,           // null: no limit (Test cricket: the match clock ends it)
     freeHits: freeHits !== false,         // free hit after a no-ball (limited overs, if switched on)
+    reviews: { bat: 3, bowl: 3 },         // DRS reviews left for the batting and fielding sides
     ballStart: 0,                         // legal ball at which the ball in use was new
     maxWickets: maxWickets ?? battingOrder.length - 1,
     target,

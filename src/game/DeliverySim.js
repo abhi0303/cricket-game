@@ -14,6 +14,7 @@ import { diff } from './Difficulty.js';
 import { BOWLING_TYPES, bowlerKph } from './PlayerAttributes.js';
 import { PHYSICS, allowedSpeeds, stockSpeed, defaultLengthTarget } from './PhysicsConfig.js';
 import { clamp } from '../utils/Random.js';
+import { lbwTrack, umpireSaysOut, worthAnAppeal } from './DRS.js';
 
 export const SWING_LEAD = 0.2;          // real seconds from pressing a shot to bat meeting ball
 const RUNUP = {
@@ -30,11 +31,30 @@ export const DIVE = { range: 4.5, stretch: 0.25, slide: 0.55, reach: 1.9, total:
 
 const runnerSpeed = p => 5.9 + 1.6 * (p.fielding / 100);
 const FIELDER_ACCEL = 6;
+const CLEAN_WAIT = 0.9;   // how much later a fielder will take the ball cleanly rather than dive for it (s)
 /** Time to cover d metres from standing with constant acceleration up to top speed v. */
 export function timeToReach(d, v, a = FIELDER_ACCEL) {
   if (d <= 0) return 0;
   const dAcc = (v * v) / (2 * a);
   return d < dAcc ? Math.sqrt((2 * d) / a) : v / a + (d - dAcc) / v;
+}
+
+/**
+ * Which way a fielder faces to take the ball: towards it as it comes to them, or along its line when
+ * they're running after it.
+ */
+export function takeYaw(f, p, v) {
+  const coming = v.x * (f.x - p.x) + v.z * (f.z - p.z) > 0;
+  return coming ? Math.atan2(-v.x, -v.z) : Math.atan2(v.x, v.z);
+}
+
+/** How a fielder takes the ball: a catch at the right height, a pickup, a long barrier, or a dive. */
+export function takeKind(ic, f) {
+  if (ic.dive) return 'dive';
+  if (ic.type === 'catch') return ic.p.y > 1.7 ? 'catchHigh' : ic.p.y > 0.95 ? 'catchChest' : 'catchLow';
+  const hs = Math.hypot(ic.v.x, ic.v.z);
+  const coming = ic.v.x * (f.x - ic.p.x) + ic.v.z * (f.z - ic.p.z) > 0;
+  return coming && hs > 13 ? 'barrier' : 'pickup';
 }
 
 /**
@@ -107,6 +127,7 @@ export class DeliverySim {
     this.isWide = false;
     this.noBall = false;
     this.dismissal = null;
+    this.lbw = null;            // an LBW appeal: { track, onField } (for reviews)
     this.boundary = 0;
     this.runsCompleted = 0;
     this.runState = 'idle';     // idle | running | returning
@@ -535,18 +556,19 @@ export class DeliverySim {
         this.padHit = true;
         this.ball.p = atPad;
         this.emit('padHit', { p: atPad });
-        // LBW: not pitched outside leg, impact in line (or outside off with no shot), going on to hit.
-        const pitchedOutsideLeg = this.plan.bounce && this.plan.bounce.x < -(PITCH.stumpHalfWidth + BALL_R);
-        const inLine = Math.abs(atPad.x) <= PITCH.stumpHalfWidth + BALL_R;
-        const outsideOff = atPad.x > PITCH.stumpHalfWidth + BALL_R;
-        const impactOk = inLine || (outsideOff && !shotOffered);
-        if (!pitchedOutsideLeg && impactOk && this.plan.hitsStumps && dismissalAllowed('lbw', { extra, freeHit: this.freeHit })) {
+        // LBW: ball tracking knows the truth (pitching, impact, going on to hit); the on-field umpire judges it
+        // by eye, so the odd close call goes the wrong way. Both are kept for a review (DRS.js).
+        const track = lbwTrack({ plan: this.plan, impact: atPad, shotOffered });
+        const allowed = dismissalAllowed('lbw', { extra, freeHit: this.freeHit });
+        const given = allowed && umpireSaysOut(track, this.rng, { perfect: !!this.perfectUmpire });
+        if (allowed && (given || worthAnAppeal(track))) this.lbw = { track, onField: given ? 'out' : 'notout', t: this.t };
+        if (given) {
           this.emit('appeal');
           this.out('lbw', this.strikerP.id, null, 'LBW!');
           return;
         }
         // Close call turned down: the umpire shakes his head.
-        if (inLine || this.plan.hitsStumps) { this.emit('appeal', { denied: true }); this.umpire.signal = 'notout'; this.setAction(this.umpire, 'signal'); }
+        if (this.lbw) { this.emit('appeal', { denied: true }); this.umpire.signal = 'notout'; this.setAction(this.umpire, 'signal'); }
         // Deflects off the pad: leg byes are possible.
         const dir = this.rng.chance(0.6) ? this.rng.range(-150, -40) : this.rng.range(20, 120);
         const v = launchVelocity(this.rng.range(2.5, 6.5), dir, this.rng.range(-5, 12));
@@ -655,13 +677,19 @@ export class DeliverySim {
     const token = (this.interceptToken = (this.interceptToken || 0) + 1);
     const fb = this.bat.firstBounceT;
     let best = null;
+    // Each fielder: the first point they can get to (perhaps only with a dive) and the first they can take
+    // cleanly on their feet. They dive only when it matters (to stop the ball before the rope or to reach a
+    // catch before it lands); otherwise they run on and take it cleanly a moment later.
+    const bndT = this.bat.boundary?.t ?? Infinity;
     for (const f of this.allFielders) {
       if (f.role === 'bowler' && this.bowler.action === 'follow' && now - this.tRelease < 0.5) continue;
       const react = f.reaction + (f.id === excludeId ? penalty : 0);
       const n = path.t.length;
+      let first = null, clean = null;
       for (let i = 0; i < n; i++) {
         const ti = path.t[i];
         if (ti < now + react * 0.6) continue;
+        if (first && ti - first.t > CLEAN_WAIT) break;
         const p = path.p[i];
         const air = (fb == null || ti < fb) && !this.bat.bouncedAtStart;
         if (p.y > (air ? 2.6 : 1.3)) continue;
@@ -678,11 +706,13 @@ export class DeliverySim {
         const need = timeToReach(Math.max(0, d - reach), f.speed);
         const dive = need > avail;
         if (dive && timeToReach(Math.max(0, d - reach - 1.3 * hard), f.speed) > avail) continue;
-        if (!best || ti < best.t - 1e-6 || (Math.abs(ti - best.t) < 1e-6 && !dive && best.dive)) {
-          best = { f, t: ti, p: { ...p }, v: { ...path.v[i] }, type: air ? 'catch' : 'stop', dive };
-        }
-        break; // earliest point for this fielder
+        const pt = { f, t: ti, p: { ...p }, v: { ...path.v[i] }, type: air ? 'catch' : 'stop', dive };
+        if (!first) first = pt;
+        if (!dive) { clean = pt; break; }
       }
+      if (!first) continue;
+      const pick = first.dive && clean && clean.type === first.type && clean.t < bndT ? clean : first;
+      if (!best || pick.t < best.t - 1e-6 || (Math.abs(pick.t - best.t) < 1e-6 && !pick.dive && best.dive)) best = pick;
     }
     // Nobody gets there before the ball stops: nearest fielder walks to it.
     const bnd = this.bat.boundary;
@@ -698,9 +728,10 @@ export class DeliverySim {
     if (best && bnd && best.t >= bnd.t) best = null;
     this.intercept = best;
     // The chaser runs at the intercept point; everyone else watches.
-    for (const f of this.allFielders) f.chasing = false;
+    for (const f of this.allFielders) { f.chasing = false; f.take = null; }   // (a take in progress stays in f.takeDone)
     if (best) {
       best.f.chasing = true;
+      best.f.take = { kind: takeKind(best, best.f), t: best.t, p: { ...best.p }, v: { ...best.v } };
       best.f.target = { x: best.p.x, z: best.p.z };
       best.f.arriveBy = best.t;
       this.schedule(best.t, () => { if (token === this.interceptToken) this.onIntercept(best); });
@@ -717,10 +748,19 @@ export class DeliverySim {
   onIntercept(ic) {
     if (this.ball.state !== 'batted') return;
     const f = ic.f;
-    // Make sure the fielder is visibly at the ball (dives cover the last metre or two).
-    const sdx = ic.p.x - f.x, sdz = ic.p.z - f.z, sd = Math.hypot(sdx, sdz);
-    if (sd > 0.6) { f.x += sdx / sd * (sd - 0.6); f.z += sdz / sd * (sd - 0.6); }
-    f.yaw = Math.atan2(sdx, sdz);
+    // The fielder is at the ball, facing it: just behind it for a catch or pickup; a dive covers the last metre or so.
+    const yaw = takeYaw(f, ic.p, ic.v);
+    if (ic.dive) {
+      const sdx = ic.p.x - f.x, sdz = ic.p.z - f.z, sd = Math.hypot(sdx, sdz);
+      if (sd > 1.5) { f.x += sdx / sd * (sd - 1.5); f.z += sdz / sd * (sd - 1.5); }
+    } else {
+      f.x = ic.p.x - Math.sin(yaw) * 0.45;
+      f.z = ic.p.z - Math.cos(yaw) * 0.45;
+    }
+    f.yaw = yaw;
+    // the take being made now (the view animates it); a re-chase after a fumble plans a new f.take
+    f.takeDone = f.take && Math.abs(f.take.t - ic.t) < 1e-6 ? f.take : { kind: takeKind(ic, f), t: ic.t, p: { ...ic.p }, v: { ...ic.v } };
+    f.take = null;
     this.ball.p = { ...ic.p };
     const ballSpeed = Math.hypot(ic.v.x, ic.v.y, ic.v.z);
     if (ic.type === 'catch') {
@@ -763,7 +803,7 @@ export class DeliverySim {
     this.ball.holder = f.id;
     this.emit('pickup', { fielder: f.id });
     this.fieldedBy = this.fieldedBy || f;
-    this.afterGather(f, ic.dive ? 0.7 : 0.3 + Math.min(0.25, ballSpeed * 0.012));
+    this.afterGather(f, ic.dive ? 1.0 : 0.3 + Math.min(0.25, ballSpeed * 0.012));
   }
 
   afterGather(f, delay = 0.2) {
@@ -813,8 +853,10 @@ export class DeliverySim {
     }
     const casual = this.runState === 'idle';
     const speed = (f.throwSpeed || 26) * (casual ? 0.65 : 1);
-    const from = { x: f.x, y: 1.8, z: f.z };
     const to = { x: end === 'striker' ? 0.15 : 0.1, y: 0.85, z: end === 'striker' ? PITCH.half + 0.45 : -PITCH.half - 0.45 };
+    // Turn to face the stumps; the ball leaves the throwing hand, up and a little in front of the head.
+    f.yaw = Math.atan2(to.x - f.x, to.z - f.z);
+    const from = { x: f.x + Math.sin(f.yaw) * 0.35 - Math.cos(f.yaw) * 0.18, y: 2.05, z: f.z + Math.cos(f.yaw) * 0.35 + Math.sin(f.yaw) * 0.18 };
     const d = Math.hypot(to.x - from.x, to.z - from.z);
     const wild = !casual && this.rng.chance(0.07 * (1.2 - f.player.fielding / 100));
     const windup = casual ? 0.35 : 0.3;

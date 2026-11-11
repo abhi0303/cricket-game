@@ -302,6 +302,16 @@ export class MatchEngine {
     return null;
   }
 
+  /** DRS reviews the batting ('bat') or fielding ('bowl') side has left this innings. */
+  reviewsLeft(side) { return this.innings?.reviews?.[side] ?? 3; }
+  /** A review was used: it's lost unless the decision was overturned or stayed on umpire's call. */
+  useReview(side, { retained = false } = {}) {
+    const inn = this.innings;
+    if (!inn) return;
+    inn.reviews = inn.reviews || { bat: 3, bowl: 3 };
+    if (!retained) inn.reviews[side] = Math.max(0, inn.reviews[side] - 1);
+  }
+
   /** Tests: balls left in the match (today's and the remaining days'). */
   matchBallsLeft() {
     const T = this.state.test;

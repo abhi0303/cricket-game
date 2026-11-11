@@ -25,7 +25,7 @@ The cricket rules, squad validation, ball physics, AI, input handling and camera
 npm test          # node --test tests/*.test.js
 ```
 
-There are 139 tests. They cover every squad-composition rule, scoring and extras, Test matches (innings order, stumps and the day's overs, the follow-on, innings wins, chases, ties, declarations, draws on time, the new ball, the Test wide rule, the computer's declarations and Test-like AI scoring), the free-hit switch, strike rotation, over changes, wickets and the next batter, free hits, bowler over limits, target chasing and results. They also run full AI-vs-AI matches in all three formats (checking that runs, balls and wickets always add up), save/resume mid-match, skipping ahead (simulating an innings, stopping exactly at the final overs of a chase), moving across the crease (keys, reach, pads and stumps, wide calls), the controller layout and shot direction in every camera, sprinting and diving for the crease, net practice (fixed and random speeds, the chosen length, line and delivery always bowled, the netting stopping the ball, and what each shot would be worth on the field), the bowling physics (all 10 speeds × 8 lengths, pitching inside the chosen range, bounce direction, travel and reaction times, identical results at 30/60/120 FPS, nothing passing through the bat, body or stumps), timing windows and shot selection, swing and spin direction, gamepad edge detection, dead zones and connect/disconnect, the batting and bowling camera positions (including the TV framing), the field chart's orientation and counts, and the batting animations (footwork, contact positions, the bat keeping its speed through the ball, high finishes).
+There are 148 tests. They cover every squad-composition rule, scoring and extras, Test matches (innings order, stumps and the day's overs, the follow-on, innings wins, chases, ties, declarations, draws on time, the new ball, the Test wide rule, the computer's declarations and Test-like AI scoring), the free-hit switch, DRS (ball tracking's pitching / impact / wickets calls and umpire's-call margins, overturns, reviews kept and lost, three a side per innings, the on-field umpire's accuracy and when the computer reviews), fielding (catches by height, pickups, long barriers, dives only when needed, facing the ball and turning to throw), strike rotation, over changes, wickets and the next batter, free hits, bowler over limits, target chasing and results. They also run full AI-vs-AI matches in all three formats (checking that runs, balls and wickets always add up), save/resume mid-match, skipping ahead (simulating an innings, stopping exactly at the final overs of a chase), moving across the crease (keys, reach, pads and stumps, wide calls), the controller layout and shot direction in every camera, sprinting and diving for the crease, net practice (fixed and random speeds, the chosen length, line and delivery always bowled, the netting stopping the ball, and what each shot would be worth on the field), the bowling physics (all 10 speeds × 8 lengths, pitching inside the chosen range, bounce direction, travel and reaction times, identical results at 30/60/120 FPS, nothing passing through the bat, body or stumps), timing windows and shot selection, swing and spin direction, gamepad edge detection, dead zones and connect/disconnect, the batting and bowling camera positions (including the TV framing), the field chart's orientation and counts, and the batting animations (footwork, contact positions, the bat keeping its speed through the ball, high finishes).
 
 ### Publishing on GitHub Pages
 
@@ -112,6 +112,24 @@ Nothing is scored, but every ball is graded. You see your timing and shot, and w
 
 The "would have been" result plays the shot out on an open field with the match's own ball flight and fielding rules. The running estimate was fitted to full AI matches: over about 3,000 shots its total runs come within 2% of what the real fielders and runners gave.
 
+### Reviews (DRS)
+
+Each side has **3 reviews per innings** for LBW decisions. A review is lost when the on-field decision is clearly right; it is kept when the decision is overturned or stays on **umpire's call**.
+
+- **The on-field umpire:** judges LBWs by eye. He gets nearly all of them right and gives the batter the benefit of the doubt, but a close call occasionally goes the wrong way.
+- **When you can review:** if your batter is given out LBW, or your LBW appeal is turned down while bowling, you're asked to **Review (DRS)** or accept the decision. You have 7 seconds, and the controller uses the usual menu buttons. The computer reviews for its own side, mostly when a decision was wrong, sometimes gambling on a close one, and more carefully with its last review.
+- **The review:** the third umpire watches the replay to the pad, then ball tracking draws in:
+  - the stump-line corridor down the pitch and the ball's path (red);
+  - **PITCHING:** in line, outside off or outside leg;
+  - **IMPACT:** in line, umpire's call or outside (no defence outside off if no shot was offered);
+  - the projected path on to the stumps (blue) and the wicket zone;
+  - **WICKETS:** hitting, umpire's call (less than half the ball hitting) or missing.
+
+  Then the decision: OUT or NOT OUT, with "decision overturned", "umpire's call" or "on-field decision stands", and whether the review was kept. **Continue** skips to the decision.
+- **The result:** a batter given out on review scores no runs off that ball, and a reprieve wipes the dismissal. Reviews left for both sides show under the caption at the top left (`DRS MCC ●●○ · RBR ●●●`).
+
+In AI-vs-AI testing, about 5% of dismissals are LBW. Of 37 LBW appeals, the umpire got 32 clearly right, 4 were umpire's call and 1 was a wrong decision that a review would overturn.
+
 ### Test matches
 
 Pick **Test match (5 days, 90 overs a day)** as the format in Match Settings.
@@ -159,7 +177,8 @@ Pick a **speed** with **E / Y / △** (faster) and **Q / B / ○** (slower): 150
 
 - **Players:** each player's role, batting style (Attacker / Defensive / Balanced), technique (front-foot, back-foot, balanced, sweeper), bowling type (fast, fast-medium, medium, off-spin, leg-spin) and nine 1–99 ratings feed directly into gameplay: timing windows, edge and miss risk, shot power, pace, swing and turn, accuracy, stamina, running speed, catching and throwing. In AI-vs-AI testing, attackers strike at about 200 and get out roughly twice as often as defensive batsmen, who strike at about 85.
 - **Ball physics:** the selected speed sets the release velocity (km/h ÷ 3.6), and a drag-aware solver aims the arc at the chosen pitching point. Gravity, air drag and swing act in flight; the bounce contact is exact, with restitution and speed loss set by the length, then seam and turn off the pitch. There's also drag on hit balls, bounces and roll on the outfield, and fours versus sixes at the rope. A perfect shot isn't a guaranteed six: the shot choice, the line and length, the player and the field all matter.
-- **Dismissals:** bowled (including played on), caught (fielders, caught behind, caught and bowled), LBW (pitched outside leg / impact / hitting checks), run out at either end, stumped (dancing down to a spinner) and the rare hit wicket.
+- **Dismissals:** bowled (including played on), caught (fielders, caught behind, caught and bowled), LBW (judged by the on-field umpire, reviewable with ball tracking), run out at either end, stumped (dancing down to a spinner) and the rare hit wicket.
+- **Fielding:** fielders run to cut the ball off and take it the way a player would. Catches are taken above the head, at the chest or low on bent knees. Slower ground balls are picked up with a bend and both hands, and hard ones straight at a fielder get a long barrier on one knee. They dive, to the correct side, only when that's the only way to stop a boundary or reach a catch, which is about one ground stop in six; before this change it was three in four. The take starts just before the ball arrives so the hands meet it, the ball then sits in the fielder's hand, and he straightens up, turns to the stumps and throws from the hand. A keeper standing up can't catch a ball pushed forward past the batter.
 - **Rules:** legal balls and overs, wides (off side, down leg, over head height; wider in Tests), front-foot and waist-high no-balls with free hits (optional; never in Tests), byes and leg byes, strike rotation, new batters (including the caught-batter rule), bowler limits (one fifth of the overs each, no consecutive overs), all out / overs / target reached, ties. Tests add four innings, days and stumps, declarations, the follow-on, innings victories, draws and the new ball.
 - **Computer:** chooses shots by expected runs against wicket risk, reacting to the required run rate, wickets left and the phase of the innings. Its bowling plans depend on the batter and the situation, and its field settings and bowler rotation are rule-based. Running decisions include small misjudgements, so run-outs happen. Difficulty changes reaction-time pressure, timing windows, aim assist, accuracy and how well the computer bats, bowls and catches.
 
@@ -239,7 +258,16 @@ Every player is one skinned mesh on a shared 17-bone skeleton: hips, spine, ches
 - **The ball:** stitched leather, red in Tests and white otherwise. It has a raised main seam with six rows of stitching, faint quarter seams and a small gold maker's stamp, and new leather has a polish. As the ball gets older (over 80 overs for a red ball, about 25 for a white one) it loses its shine and picks up light scuffs, specks of mud and the odd grass mark. It spins in flight: backspin with the seam upright for pace, turning about its line of flight for spin, tumbling off the bat and rolling on the grass.
 - **Variety:** each player gets a seeded height, skin tone, hairstyle and facial hair.
 
-Animations include separate fast, medium and spin bowling actions, every batting shot, a play-and-miss reaction, running, fielding (ready, chase, dive, pick-up, catch, throw, celebrate), keeping (crouch, take, stumping) and the umpire signals (out, not out, four, six, wide, no ball, bye).
+Animations include separate fast, medium and spin bowling actions, every batting shot, a play-and-miss reaction, running, the batter's dive for the crease, fielding (ready, chase, high / chest / low catches, two-handed pickup, long barrier, left and right dives, throw, celebrate), keeping (crouch, take, stumping) and the umpire signals (out, not out, four, six, wide, no ball, bye).
+
+**Replays** (automatic after wickets and boundaries, or **R** between balls) play the delivery from behind the bowler, from just before the delivery stride, then cut to a slow-motion second angle:
+
+- **Bowled:** a low view of the stumps.
+- **LBW:** side-on at pad height.
+- **Catches and boundaries:** a camera following the ball.
+- **Run-outs and stumpings:** side-on at the crease.
+
+The stumps are whole at the start of each angle and break at the moment the ball hits, with the bails flying in slow motion. A **● REPLAY** tag shows which angle is playing.
 
 ### Batting animation
 

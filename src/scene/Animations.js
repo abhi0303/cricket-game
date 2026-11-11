@@ -356,6 +356,29 @@ export const RELEASE_T = 0.42;
 const READY = { thighL: [-35, 0, 12], shinL: [55, 0, 0], thighR: [-35, 0, -12], shinR: [55, 0, 0], torso: [35, 0, 0], head: [-30, 0, 0], armL: [-45, 0, 12], foreL: [-30, 0, 0], armR: [-45, 0, -12], foreR: [-30, 0, 0], root: [0, -0.18, 0] };
 const CROUCH = { thighL: [-100, 0, 22], shinL: [125, 0, 0], thighR: [-100, 0, -22], shinR: [125, 0, 0], torso: [38, 0, 0], head: [-36, 0, 0], armL: [-55, 0, 8], foreL: [-25, 0, 0], armR: [-55, 0, -8], foreR: [-25, 0, 0], root: [0, -0.5, 0.05] };
 
+/** Side dive: s = +1 to the character's left (+x), -1 to the right. The body rolls flat towards the ball. */
+function diveClip(s) {
+  return keyed(1.5, [
+    [0, { ...READY }],
+    [0.12, { rootRot: [0, 0, -s * 28], root: [s * 0.25, -0.2, 0], torso: [18, 0, 0], head: [-20, 0, 0],
+      armL: [-140, 0, 12], armR: [-140, 0, -12], foreL: [-15, 0, 0], foreR: [-15, 0, 0],
+      thighL: [-40, 0, 10], shinL: [50, 0, 0], thighR: [-10, 0, -10], shinR: [30, 0, 0] }],
+    [0.32, { rootRot: [0, 0, -s * 82], root: [s * 0.85, -0.78, 0], torso: [4, 0, 0], head: [-12, 0, 0],
+      armL: [-172, 0, 10], armR: [-172, 0, -10], foreL: [-5, 0, 0], foreR: [-5, 0, 0],
+      thighL: [-6, 0, 8], shinL: [12, 0, 0], thighR: [8, 0, -8], shinR: [16, 0, 0] }],
+    [0.62, { rootRot: [0, 0, -s * 84], root: [s * 0.95, -0.8, 0], torso: [6, 0, 0], head: [-15, 0, 0],
+      armL: [-150, 0, 14], armR: [-160, 0, -10], foreL: [-30, 0, 0], foreR: [-20, 0, 0],
+      thighL: [-12, 0, 8], shinL: [25, 0, 0], thighR: [4, 0, -8], shinR: [30, 0, 0], ballHand: 'R' }],
+    [1.05, { rootRot: [0, 0, -s * 32], root: [s * 0.72, -0.46, 0], torso: [30, 0, 0], head: [-15, 0, 0],
+      armL: [-40, 0, 14], armR: [-60, 0, -20], foreL: [-30, 0, 0], foreR: [-80, 0, 0],
+      thighL: [-82, 0, 10], shinL: [100, 0, 0], thighR: [-20, 0, -10], shinR: [92, 0, 0], ballHand: 'R' }],
+    [1.5, { root: [s * 0.6, -0.04, 0], torso: [10, 0, 0], armR: [15, 0, -40], foreR: [-95, 0, 0], armL: [-60, 0, 24], foreL: [-30, 0, 0], ballHand: 'R' }],
+  ]);
+}
+
+/** When the hands meet the ball in each taking clip (s from the clip start). */
+export const TAKE_CT = { takeHigh: 0.22, takeChest: 0.2, takeLow: 0.24, takePickup: 0.28, takeBarrier: 0.24, takeDiveL: 0.32, takeDiveR: 0.32 };
+
 const CLIPS = {
   idle: proc(3, (t, p) => {
     p.torso = [2 + S(t * 2) * 1.2, 0, 0];
@@ -452,6 +475,57 @@ const CLIPS = {
     [0.6, { rootRot: [0, 0, 84], root: [0.9, -0.82, 0], armL: [-175, 0, 15], armR: [-170, 0, -15], thighL: [-10, 0, 10], thighR: [10, 0, -10], ballHand: 'R' }],
     [1.4, { rootRot: [0, 0, 40], root: [0.6, -0.45, 0], armL: [-60, 0, 30], armR: [-60, 0, -30], thighL: [-50, 0, 10], shinL: [80, 0, 0], ballHand: 'R' }],
   ]),
+  // ---- taking the ball. Each starts a moment before the ball arrives; the hands meet it at TAKE_CT[clip].
+  // high catch: up on the toes, hands together above the head, then brought down into the chest
+  takeHigh: keyed(1.3, [
+    [0, { ...READY }],
+    [0.22, { thighL: [-12, 0, 8], shinL: [20, 0, 0], thighR: [-12, 0, -8], shinR: [20, 0, 0], torso: [-4, 0, 0], head: [-38, 0, 0],
+      armL: [-168, 0, 14], armR: [-168, 0, -14], foreL: [-18, 0, 0], foreR: [-18, 0, 0], handL: [20, 0, 0], handR: [20, 0, 0], root: [0, 0.03, 0] }],
+    [0.45, { thighL: [-25, 0, 8], shinL: [40, 0, 0], thighR: [-25, 0, -8], shinR: [40, 0, 0], torso: [10, 0, 0], head: [-10, 0, 0],
+      armL: [-95, 0, 18], armR: [-95, 0, -18], foreL: [-85, 0, 0], foreR: [-85, 0, 0], root: [0, -0.08, 0], ballHand: 'R' }],
+    [1.3, { torso: [6, 0, 0], armL: [-40, 0, 14], foreL: [-60, 0, 0], armR: [-60, 0, -18], foreR: [-75, 0, 0], ballHand: 'R' }],
+  ]),
+  // chest-high catch: hands cupped together in front of the chest, then cradled into the body
+  takeChest: keyed(1.2, [
+    [0, { ...READY }],
+    [0.2, { thighL: [-30, 0, 10], shinL: [45, 0, 0], thighR: [-30, 0, -10], shinR: [45, 0, 0], torso: [18, 0, 0], head: [-22, 0, 0],
+      armL: [-72, 0, -8], armR: [-72, 0, 8], foreL: [-38, 0, 0], foreR: [-38, 0, 0], handL: [-20, 0, 0], handR: [-20, 0, 0], root: [0, -0.12, 0] }],
+    [0.42, { thighL: [-22, 0, 8], shinL: [35, 0, 0], thighR: [-22, 0, -8], shinR: [35, 0, 0], torso: [12, 0, 0], head: [-12, 0, 0],
+      armL: [-40, 0, 10], armR: [-40, 0, -10], foreL: [-105, 0, 0], foreR: [-105, 0, 0], root: [0, -0.08, 0], ballHand: 'R' }],
+    [1.2, { torso: [6, 0, 0], armL: [-35, 0, 12], foreL: [-70, 0, 0], armR: [-55, 0, -16], foreR: [-80, 0, 0], ballHand: 'R' }],
+  ]),
+  // low catch: down on bent knees, fingers pointing at the grass, then up with the ball
+  takeLow: keyed(1.3, [
+    [0, { ...READY }],
+    [0.24, { thighL: [-82, 0, 14], shinL: [108, 0, 0], thighR: [-58, 0, -14], shinR: [98, 0, 0], torso: [55, 0, 0], head: [-48, 0, 0],
+      armL: [-58, 0, 6], armR: [-58, 0, -6], foreL: [-6, 0, 0], foreR: [-6, 0, 0], handL: [-25, 0, 0], handR: [-25, 0, 0], root: [0, -0.42, 0.05] }],
+    [0.62, { thighL: [-40, 0, 10], shinL: [60, 0, 0], thighR: [-30, 0, -10], shinR: [45, 0, 0], torso: [25, 0, 0], head: [-20, 0, 0],
+      armL: [-40, 0, 10], armR: [-45, 0, -10], foreL: [-75, 0, 0], foreR: [-85, 0, 0], root: [0, -0.16, 0], ballHand: 'R' }],
+    [1.3, { torso: [6, 0, 0], armL: [-35, 0, 12], foreL: [-70, 0, 0], armR: [-55, 0, -16], foreR: [-80, 0, 0], ballHand: 'R' }],
+  ]),
+  // ground ball: bend low over it with both hands down, gather, straighten and bring it up by the ear to throw
+  takePickup: keyed(0.95, [
+    [0, { thighL: [-30, 0, 6], shinL: [50, 0, 0], thighR: [20, 0, -6], shinR: [40, 0, 0], torso: [25, 0, 0], head: [-20, 0, 0],
+      armL: [20, 0, 10], foreL: [-70, 0, 0], armR: [-30, 0, -10], foreR: [-70, 0, 0] }],
+    [0.28, { thighL: [-88, 0, 10], shinL: [100, 0, 0], thighR: [-22, 0, -12], shinR: [78, 0, 0], torso: [72, 0, 0], head: [-52, 0, 0],
+      armR: [-78, 0, -8], foreR: [-4, 0, 0], armL: [-66, 0, 10], foreL: [-10, 0, 0], handR: [-30, 0, 0], handL: [-30, 0, 0], root: [0, -0.4, 0.1] }],
+    [0.55, { thighL: [-45, 0, 8], shinL: [62, 0, 0], thighR: [-15, 0, -8], shinR: [36, 0, 0], torso: [36, 0, 0], head: [-22, 0, 0],
+      armR: [-30, 0, -30], foreR: [-75, 0, 0], armL: [-35, 0, 15], foreL: [-45, 0, 0], root: [0, -0.15, 0], ballHand: 'R' }],
+    [0.95, { torso: [12, 0, 0], thighL: [-14, 0, 6], shinL: [20, 0, 0], thighR: [-10, 0, -6], shinR: [16, 0, 0],
+      armR: [20, 0, -42], foreR: [-95, 0, 0], armL: [-62, 0, 24], foreL: [-30, 0, 0], ballHand: 'R' }],
+  ]),
+  // a hard ball straight at the fielder: long barrier (down on one knee behind the hands), then up to throw
+  takeBarrier: keyed(1.1, [
+    [0, { ...READY }],
+    [0.24, { thighL: [-86, 0, 10], shinL: [90, 0, 0], thighR: [28, 0, -18], shinR: [112, 0, 0], torso: [52, 0, 0], head: [-42, 0, 0],
+      armL: [-64, 0, 8], armR: [-64, 0, -8], foreL: [-12, 0, 0], foreR: [-12, 0, 0], handL: [-20, 0, 0], handR: [-20, 0, 0], root: [0, -0.44, 0] }],
+    [0.62, { thighL: [-60, 0, 10], shinL: [72, 0, 0], thighR: [-10, 0, -10], shinR: [52, 0, 0], torso: [26, 0, 0], head: [-15, 0, 0],
+      armR: [-38, 0, -22], foreR: [-70, 0, 0], armL: [-40, 0, 12], foreL: [-45, 0, 0], root: [0, -0.16, 0], ballHand: 'R' }],
+    [1.1, { torso: [10, 0, 0], armR: [15, 0, -40], foreR: [-95, 0, 0], armL: [-60, 0, 24], foreL: [-30, 0, 0], ballHand: 'R' }],
+  ]),
+  // full-length dive to the fielder's left / right (s), arms stretched to the ball, then up onto a knee and on their feet
+  takeDiveL: diveClip(1),
+  takeDiveR: diveClip(-1),
   pickup: keyed(0.7, [
     [0, { ...READY }],
     [0.25, { torso: [70, 0, 0], head: [-40, 0, 0], armR: [-80, 0, -10], foreR: [-10, 0, 0], armL: [-60, 0, 10], thighL: [-60, 0, 10], shinL: [80, 0, 0], thighR: [-20, 0, -10], shinR: [40, 0, 0], root: [0, -0.3, 0] }],

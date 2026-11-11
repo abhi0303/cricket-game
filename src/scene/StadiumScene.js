@@ -229,6 +229,9 @@ export class StadiumScene {
     }
   }
 
+  /** Let broken stumps fall to rest at once (a replay segment that starts after the wicket). */
+  settleStumps() { for (let i = 0; i < 120; i++) this.updateStumps(1 / 60); }
+
   updateStumps(dt) {
     for (const s of Object.values(this.stumpSets)) {
       if (!s.broken) continue;
@@ -507,7 +510,7 @@ export class StadiumScene {
     const u = this.uniforms.uCheer;
     u.value += (this.cheerTarget - u.value) * Math.min(1, dt * 4);
     this.cheerTarget = Math.max(0, this.cheerTarget - dt * 0.35);
-    this.updateStumps(dt);
+    this.updateStumps(dt * (this.stumpTimeScale ?? 1));
     if (this.flag) {
       const p = this.flag.geometry.attributes.position;
       for (let i = 0; i < p.count; i++) { const x = p.getX(i) + 1.1; p.setZ(i, Math.sin(t * 4 + x * 2.4) * 0.12 * x); }

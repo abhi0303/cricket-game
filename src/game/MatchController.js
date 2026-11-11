@@ -12,6 +12,9 @@ import { HUD, renderOverlay, hideOverlay, pauseHTML, bowlerSelectHTML, inningsBr
 import { simulateBalls, simulateAcross, untilStumps, chaseFinishReached } from './SkipSim.js';
 import { aiShouldDeclare, aiEnforceFollowOn } from '../ai/CaptainAI.js';
 import { ballWear } from '../scene/BallLook.js';
+import { ReviewView } from '../scene/ReviewView.js';
+import { reviewVerdict, aiWantsReview, applyVerdict, VERDICT_TEXT, verdictTone } from './DRS.js';
+import { reviewPromptHTML } from '../ui/HUD.js';
 import { esc, toast, moveFocus, adjustFocused } from '../ui/UI.js';
 import { BATTING_VIEWS, BOWLING_VIEWS, viewEnd, normalizeBattingView, normalizeBowlingView } from '../scene/CameraPoses.js';
 import { applyBattingInput, SHOT_HINTS } from './BattingInput.js';
@@ -63,6 +66,8 @@ export class MatchController {
   }
 
   destroy() {
+    clearTimeout(this.reviewTimer);
+    this.reviewView?.clear();
     this.simulating = null;
     this.app.view.stopReplay();
     this.app.view.hideAll();
@@ -167,7 +172,7 @@ export class MatchController {
       this.handleEvents();
       this.app.view.update(dt);
       this.updateCamera();
-      if (sim.phase === 'dead' && !this.recorded) this.recordBall();
+      if (sim.phase === 'dead' && !this.recorded && !this.reviewing) this.ballDone();
     } else if (this.state === 'between') {
       input.setProfile('between');
       sim.update(dt);
@@ -178,15 +183,23 @@ export class MatchController {
       if (hl && this.settings.autoReplay && !this.replayed && this.deadT > 1.3 && this.app.view.hasReplay()) { this.startReplay(); return; }
       if (input.pressed('replay')) { this.startReplay(); return; }
       if ((input.pressed('continue') && this.deadT > 0.35) || this.deadT > (hl ? 3.4 : 2.4)) this.afterBall();
+    } else if (this.state === 'review') {
+      this.updateReview(dt);
     } else if (this.state === 'replay') {
       input.setProfile('between');
-      this.app.view.update(dt);
-      const b = this.app.view.replayBall || { x: 0, y: 1, z: 0 };
-      this.app.cameras.set('cinematic', { kind: this.replayKind });
+      const view = this.app.view;
+      view.update(dt);
+      const seg = view.replaySegment, idx = view.replay?.i ?? 0;
+      const b = view.replayBall || { x: 0, y: 1, z: 0 };
+      this.app.cameras.set('cinematic', { kind: seg?.kind || 'bowlerEnd', end: seg?.end }, idx !== this.replaySegIdx);
+      this.replaySegIdx = idx;
+      this.hud.replayTag(seg?.label || 'REPLAY');
       this.camCtx = { frameYaw: this.app.stadium.frame.rotation.y, ball: b, bowler: sim.bowler };
-      if (this.app.view.replayDone || input.pressed('continue')) {
-        this.app.view.stopReplay();
-        this.state = 'between';
+      if (view.replayDone || input.pressed('continue')) {
+        view.stopReplay();
+        this.hud.replayTag(null);
+        this.state = this.afterReplayState || 'between';
+        this.afterReplayState = null;
         this.replayed = true;
         this.deadT = Math.max(this.deadT, 2.2);
         this.hud.show('.banner', true);
@@ -196,7 +209,7 @@ export class MatchController {
   }
 
   cameraContext() {
-    if (this.state === 'replay' && this.camCtx) return this.camCtx;
+    if ((this.state === 'replay' || this.state === 'review') && this.camCtx) return this.camCtx;
     const sim = this.sim;
     return { frameYaw: this.app.stadium.frame.rotation.y, bowler: sim?.bowler, ball: sim?.ball?.p };
   }
@@ -344,9 +357,168 @@ export class MatchController {
   }
 
   // ------------------------------------------------------------------ after the ball
-  recordBall() {
+  // ------------------------------------------------------------------ DRS
+  /**
+   * The ball is dead. An LBW decision can be reviewed by the side it went against (3 reviews an innings):
+   * the player is asked; the computer decides for itself. Otherwise the ball is recorded straight away.
+   */
+  ballDone() {
+    const res = this.sim.result(), lbw = this.sim.lbw, e = this.engine;
+    if (lbw && e.phase === 'innings') {
+      const side = lbw.onField === 'out' ? 'bat' : 'bowl';
+      const team = side === 'bat' ? e.innings.battingTeam : e.innings.bowlingTeam;
+      const left = e.reviewsLeft(side);
+      if (left > 0) {
+        if (team === this.userTeamId && !this.auto) return this.offerReview(res, lbw, side, left);
+        if (aiWantsReview(lbw, left, this.rng)) return this.startReview(res, lbw, side);
+      }
+    }
+    this.recordBall(res);
+  }
+
+  offerReview(res, lbw, side, left) {
+    this.reviewing = true;
+    this.state = 'overlay';
+    const secs = 7;
+    const decide = (review) => {
+      clearTimeout(this.reviewTimer);
+      if (this.state !== 'overlay' || !this.reviewing) return;
+      hideOverlay(this.overlay);
+      if (review) this.startReview(res, lbw, side);
+      else { this.reviewing = false; this.recordBall(res); }
+    };
+    renderOverlay(this.overlay, reviewPromptHTML({ onField: lbw.onField, side, left, seconds: secs }), act => decide(act === 'review'));
+    this.reviewTimer = setTimeout(() => decide(false), secs * 1000);
+  }
+
+  startReview(res, lbw, side) {
+    const e = this.engine;
+    const team = e.team(side === 'bat' ? e.innings.battingTeam : e.innings.bowlingTeam);
+    const verdict = reviewVerdict(lbw.track, lbw.onField);
+    this.reviewing = true;
+    this.review = { res, lbw, side, team, verdict, phase: 'intro', t: 0, rows: [], plan: this.sim.plan, striker: e.innings.striker };
+    this.state = 'review';
+    this.hud.hideBanner(); this.hud.timing(null); this.hud.prompt(null); this.hud.meter(null);
+    this.app.sound.crowd(0.55);
+    toast(`<b>${esc(team.name)}</b> ${side === 'bat' ? 'review the LBW' : 'review for LBW'}`, 2000);
+    this.drawReview();
+  }
+
+  drawReview() {
+    const R = this.review;
+    this.hud.drs({
+      head: `DRS · ${R.team.short} REVIEW`,
+      sub: `On-field decision: ${R.lbw.onField === 'out' ? 'OUT' : 'NOT OUT'} · LBW`,
+      rows: R.rows,
+      final: R.final || null,
+    });
+  }
+
+  /** Reveal a tracking row (pitching / impact / wickets) once. */
+  reviewRow(kind) {
+    const R = this.review;
+    if (R.rows.some(r => r.kind === kind)) return;
+    const tr = R.lbw.track, v = tr[kind];
+    let value = VERDICT_TEXT[kind][v];
+    if (kind === 'impact' && tr.waived) value = 'OUTSIDE OFF · NO SHOT';
+    R.rows.push({ kind, label: kind.toUpperCase(), value, tone: verdictTone(kind, v, tr) });
+    this.app.sound.click(true);
+    this.drawReview();
+  }
+
+  /**
+   * The review plays out: the third umpire's replay up to the pad, then ball tracking (the real path, where it
+   * pitched and hit the pad; then the projection on to the stumps), then the decision.
+   */
+  updateReview(dt) {
+    const R = this.review, view = this.app.view, cams = this.app.cameras, input = this.input;
+    input.setProfile('between');
+    R.t += dt;
+    const skip = input.pressed('continue');
+    if (!this.reviewView) this.reviewView = new ReviewView(this.app.stadium.frame);
+    const rv = this.reviewView;
+    switch (R.phase) {
+      case 'intro':
+        view.update(dt);
+        cams.set('cinematic', { kind: 'bowlerEnd' });
+        if (R.t > 1.3 || skip) {
+          const range = view.replayRange, M = view.replayMarks;
+          const to = (M.padHit ?? R.lbw.t ?? range?.[1] ?? 0) + 0.35;
+          const ok = range && view.startReplay({ segments: [{ from: range[0], to, speed: 0.45, kind: 'bowlerEnd', label: 'THIRD UMPIRE' }] });
+          R.phase = ok ? 'replay' : 'track'; R.t = 0;
+          if (!ok) this.beginTracking();
+        }
+        break;
+      case 'replay':
+        view.update(dt);
+        cams.set('cinematic', { kind: 'bowlerEnd' });
+        this.hud.replayTag('THIRD UMPIRE');
+        this.camCtx = { frameYaw: this.app.stadium.frame.rotation.y, ball: view.replayBall || { x: 0, y: 1, z: 0 }, bowler: this.sim.bowler };
+        if (view.replayDone || skip) { view.stopReplay(); this.hud.replayTag(null); R.phase = 'track'; R.t = 0; this.beginTracking(); }
+        break;
+      case 'track': {
+        cams.set('cinematic', { kind: 'hawkEye' });
+        const u = Math.min(1, R.t / 1.9);
+        rv.setProgress(u, 0);
+        if (rv.pitchFraction != null && u >= rv.pitchFraction) this.reviewRow('pitching');
+        if (u >= 1) { if (!rv.pitchFraction) this.reviewRow('pitching'); this.reviewRow('impact'); }
+        if (R.t > 2.6 || skip) { rv.setProgress(1, 0); this.reviewRow('pitching'); this.reviewRow('impact'); R.phase = 'project'; R.t = 0; cams.set('cinematic', { kind: 'hawkEyeStumps' }, true); }
+        break;
+      }
+      case 'project': {
+        cams.set('cinematic', { kind: 'hawkEyeStumps' });
+        const u = Math.min(1, R.t / 1.1);
+        rv.setProgress(1, u);
+        if (u >= 1) this.reviewRow('wickets');
+        if (R.t > 2.1 || skip) {
+          rv.setProgress(1, 1); this.reviewRow('wickets');
+          const v = R.verdict;
+          R.final = { text: v.out ? 'OUT' : 'NOT OUT', tone: v.out ? 'out' : 'safe',
+            sub: `${v.overturned ? 'Decision overturned' : v.umpiresCall ? "Umpire's call: the decision stands" : 'On-field decision stands'} · ${v.retained ? 'review retained' : 'review lost'}` };
+          this.drawReview();
+          if (v.out) this.app.sound.cheer(0.8); else this.app.sound.crowd(0.4);
+          R.phase = 'decision'; R.t = 0;
+        }
+        break;
+      }
+      case 'decision':
+        if (R.t > 3 || (skip && R.t > 0.5)) this.finishReview();
+        break;
+    }
+  }
+
+  beginTracking() {
+    const R = this.review;
+    this.app.view.stopReplay();
+    this.app.view.setActorsVisible(false);
+    this.app.stadium.resetStumps();
+    if (!this.reviewView) this.reviewView = new ReviewView(this.app.stadium.frame);
+    this.reviewView.show(R.lbw.track, R.plan);
+    this.app.cameras.set('cinematic', { kind: 'hawkEye' }, true);
+  }
+
+  finishReview() {
+    const R = this.review, sim = this.sim;
+    this.reviewView?.clear();
+    this.app.view.setActorsVisible(true);
+    this.hud.drs(null);
+    this.hud.replayTag(null);
+    this.engine.useReview(R.side, { retained: R.verdict.retained });
+    // the players and the umpire go with the final decision
+    if (R.verdict.overturned) {
+      sim.setAction(sim.strikerRunner, R.verdict.out ? 'out' : 'idle');
+      sim.umpire.signal = R.verdict.out ? 'out' : 'notout';
+      sim.setAction(sim.umpire, 'signal');
+    }
+    const res = applyVerdict(R.res, R.verdict, R.striker);
+    this.review = null;
+    this.reviewing = false;
+    this.replayed = true;            // the review was the replay
+    this.recordBall(res);
+  }
+
+  recordBall(res = this.sim.result()) {
     this.recorded = true;
-    const res = this.sim.result();
     this.lastResult = res;
     if (!this.userBowling && this.sim.cpuSpec) this.lastSpecs = [...this.lastSpecs.slice(-4), this.sim.cpuSpec];
     const out = this.engine.recordBall(res);
@@ -418,16 +590,46 @@ export class MatchController {
     this.nextBall();
   }
 
+  /**
+   * TV-style replay of the last ball: the delivery from behind the bowler, then a slow-motion second angle
+   * on what mattered (stump cam for bowled, side-on for LBW, following the ball for catches and boundaries,
+   * side-on at the crease for run-outs and stumpings).
+   */
+  replayPlan(r = this.lastResult) {
+    const v = this.app.view;
+    const range = v.replayRange;
+    if (!range) return [];
+    const [first, last] = range;
+    const M = v.replayMarks, d = r?.dismissal?.type;
+    const contact = M.contact ?? M.padHit ?? M.bodyHit ?? M.keeperCollect ?? last;
+    const lead = { from: first, speed: 0.6, kind: 'bowlerEnd', label: 'REPLAY' };
+    if (d === 'bowled' || d === 'lbw' || d === 'hitwicket') {
+      const at = d === 'lbw' ? (M.padHit ?? contact) : (M.stumpsHit ?? M.wicket ?? last);
+      return [{ ...lead, to: at + 0.6 }, { from: at - 0.9, to: at + 1.1, speed: 0.28, kind: d === 'lbw' ? 'sideOnLow' : 'stumpSide', label: 'SUPER SLOW-MO' }];
+    }
+    if (d === 'caught') {
+      const c = M.catch ?? M.wicket ?? last;
+      return [{ ...lead, to: Math.min(c, contact + 0.7) }, { from: contact - 0.05, to: c + 0.9, speed: 0.5, kind: 'ballCam', label: 'THE CATCH' }];
+    }
+    if (d === 'runout' || d === 'stumped') {
+      const at = M.stumpsHit ?? M.wicket ?? last;
+      return [{ ...lead, to: Math.min(at, contact + 0.8) }, { from: at - 1.4, to: at + 0.8, speed: 0.35, kind: 'creaseCam', end: r.dismissal.end || 'striker', label: d === 'stumped' ? 'STUMPING' : 'RUN OUT' }];
+    }
+    if (r?.boundary) {
+      const b = M.boundary ?? last;
+      return [{ ...lead, to: contact + 0.7 }, { from: contact - 0.05, to: b + 0.4, speed: 0.7, kind: 'ballCam', label: r.boundary === 6 ? 'SIX' : 'FOUR' }];
+    }
+    return [{ ...lead, to: last }];
+  }
+
   startReplay() {
-    const r = this.lastResult;
-    const d = r?.dismissal?.type;
-    this.replayKind = d === 'bowled' || d === 'lbw' || d === 'stumped' ? 'stumpCam' : d ? 'sideOn' : r?.boundary ? 'orbit' : 'bowlerEnd';
-    const dur = this.app.view.startReplay({ speed: d === 'bowled' || d === 'lbw' ? 0.4 : 0.55, fromEnd: r?.boundary ? 4.5 : 3 });
+    const segs = this.replayPlan();
+    const dur = this.app.view.startReplay({ segments: segs });
     if (!dur) return;
     this.state = 'replay';
+    this.replaySegIdx = 0;
     this.hud.show('.banner', false);
-    this.app.cameras.set('cinematic', { kind: this.replayKind }, true);
-    toast('REPLAY', 1500, 'replay');
+    this.app.cameras.set('cinematic', { kind: segs[0].kind, end: segs[0].end }, true);
   }
 
   // ------------------------------------------------------------------ HUD
@@ -435,7 +637,14 @@ export class MatchController {
     const sim = this.sim, input = this.input, hud = this.hud;
     if (!sim) return;
     if (this.timingShownAt >= 0 && sim.t - this.timingShownAt > 2.2) { hud.timing(null); this.timingShownAt = -1; }
-    hud.autoBadge(this.auto && this.state !== 'replay');
+    hud.autoBadge(this.auto && this.state !== 'replay' && this.state !== 'review');
+    const inn = this.engine.innings;
+    if (inn) {
+      const dots = n => '●'.repeat(n) + '○'.repeat(Math.max(0, 3 - n));
+      const bat = this.engine.battingTeam, bowl = this.engine.bowlingTeam;
+      hud.drsCount(`<b>DRS</b>${esc(bat.short)} <i>${dots(this.engine.reviewsLeft('bat'))}</i> · ${esc(bowl.short)} <i>${dots(this.engine.reviewsLeft('bowl'))}</i>`);
+    }
+    if (this.state === 'review') { hud.meter(null); hud.prompt(null); hud.hints(input, 'between', [['continue', 'Skip to the decision'], ['pause', 'Pause']]); return; }
     // Field chart turned to match the player's camera: from the bowler's end the striker is at the top.
     const view = this.userBatting ? this.app.cameras.battingView : this.app.cameras.bowlingView;
     hud.fieldMap(sim, viewEnd(view) === 'bowler' ? 1 : -1, FIELD_PRESETS[sim.fieldPreset]?.label);

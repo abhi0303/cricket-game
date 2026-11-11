@@ -7,6 +7,7 @@ import { PAD } from '../src/controls/Bindings.js';
 import { planDelivery } from '../src/game/BallPhysics.js';
 import { resolveShot, contactZ, GUARD, BATTER_X } from '../src/game/ShotModel.js';
 import { isWideLine } from '../src/game/DeliverySim.js';
+import { reviewVerdict } from '../src/game/DRS.js';
 import { normalizePlayer } from '../src/game/PlayerAttributes.js';
 import { MatchEngine } from '../src/game/MatchEngine.js';
 import { generateCpuTeam, createDefaultUserTeam } from '../src/game/TeamManager.js';
@@ -118,7 +119,9 @@ test('backing away to leg exposes the stumps; moving across covers them with the
       sim.guard = g;                                         // exact position for the comparison
       for (let i = 0; i < 3000 && sim.phase !== 'dead'; i++) sim.update(1 / 60);   // no shot offered
       const d = sim.result().dismissal?.type;
-      if (d in n) n[d]++;
+      if (d === 'bowled') n.bowled++;
+      // LBW as ball tracking has it (the on-field umpire can miss a close one; see DRS.js)
+      if (sim.lbw && reviewVerdict(sim.lbw.track, 'notout').out) n.lbw++;
     }
     return n;
   };

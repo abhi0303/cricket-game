@@ -387,3 +387,28 @@ table.card tfoot td { text-align: left; }
   .netsbar > .nb-stat:nth-of-type(4), .netsbar > .nb-stat:nth-of-type(6) { display: none; }
   .nets-card { display: none; }
 }
+
+/* replay tag: shown while a replay plays, with the angle */
+.replay-tag { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); background: rgba(8, 14, 28, 0.86); border: 1px solid rgba(255, 209, 102, 0.7); color: var(--accent); font: 700 17px var(--head); letter-spacing: 4px; padding: 5px 16px 5px 12px; border-radius: 8px; display: flex; align-items: center; gap: 9px; }
+.replay-tag i { width: 9px; height: 9px; border-radius: 50%; background: #ff3b3b; box-shadow: 0 0 8px #ff3b3b; animation: pulse 0.8s infinite alternate; }
+
+/* DRS: reviews left (top left), the third umpire's panel, and the review prompt's timer */
+.hud-drs { font: 600 12px var(--body); color: #c9d4ea; text-shadow: 0 1px 3px #000; padding-left: 4px; letter-spacing: 0.3px; }
+.hud-drs:empty { display: none; }
+.hud-drs b { color: #9fd0ff; font-weight: 700; margin-right: 6px; }
+.hud-drs i { font-style: normal; color: var(--accent); letter-spacing: 1px; }
+.drs { position: absolute; left: 16px; top: 110px; width: min(330px, 80vw); background: rgba(6, 12, 26, 0.92); border: 1px solid rgba(80, 160, 255, 0.7); border-radius: 12px; padding: 12px 14px; box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5); font-family: var(--head); }
+.drs-head { font-size: 20px; font-weight: 700; letter-spacing: 2px; color: #9fd0ff; }
+.drs-sub { font: 600 13px var(--body); color: #c9d4ea; margin: 2px 0 8px; }
+.drs-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 5px 0; border-top: 1px solid rgba(255, 255, 255, 0.08); animation: drsIn 0.35s ease-out; }
+.drs-row span { font-size: 15px; letter-spacing: 2px; color: #dbe5fa; }
+.drs-row b { font-size: 15px; letter-spacing: 1px; padding: 3px 10px; border-radius: 6px; color: #fff; }
+.drs-row b.out { background: #c8352a; } .drs-row b.call { background: #d98c12; } .drs-row b.safe { background: #23a35a; }
+.drs-final { margin-top: 8px; text-align: center; }
+.drs-dec { font-size: 40px; font-weight: 700; letter-spacing: 4px; animation: pop 0.45s cubic-bezier(.2, 1.6, .4, 1); }
+.drs-dec.out { color: #ff5a4c; } .drs-dec.safe { color: #4fe08f; }
+.drs-why { font: 600 13px var(--body); color: #dbe5fa; }
+@keyframes drsIn { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: none; } }
+.review-timer { height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.1); overflow: hidden; margin-top: 12px; }
+.review-timer i { display: block; height: 100%; background: var(--accent); animation: reviewTimer var(--secs) linear forwards; }
+@keyframes reviewTimer { from { width: 100%; } to { width: 0; } }
