@@ -56,6 +56,17 @@ export function bowlingCam(bowler, phase = 'runup', variant = 'standard') {
   };
 }
 
+// A hit that never goes further than this from the batter's stumps (m) keeps the batting camera: a block, a soft
+// push, a ball off the pad. There's nothing to follow, and pulling out wide for it looks wrong.
+export const QUIET_RADIUS = 16;
+
+/** Does a hit ball's path (BallPhysics Path, with an optional boundary) stay near the batter? */
+export function staysNearBat(path, boundary = null, radius = QUIET_RADIUS) {
+  if (!path || boundary) return !path;
+  for (const p of path.p) if (Math.hypot(p.x, p.z - STRIKER_Z) > radius) return false;
+  return true;
+}
+
 /** After the ball is hit: high behind one end (the end the player was watching from), tracking the ball. */
 export function followCam(ball, end = 'striker') {
   const endZ = end === 'bowler' ? BOWLER_END_Z : STRIKER_Z;

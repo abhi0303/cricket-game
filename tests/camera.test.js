@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { battingCam, bowlingCam, toWorld, STRIKER_Z, BOWLER_END_Z, BATTING_VIEWS, viewMirrored, normalizeBattingView, followCam } from '../src/scene/CameraPoses.js';
+import { battingCam, bowlingCam, toWorld, STRIKER_Z, BOWLER_END_Z, BATTING_VIEWS, viewMirrored, normalizeBattingView, followCam, staysNearBat, QUIET_RADIUS } from '../src/scene/CameraPoses.js';
+import { simulateBattedBall, launchVelocity } from '../src/game/BallPhysics.js';
 
 test('batting camera sits behind the striker and looks toward the bowler', () => {
   for (const v of ['behind', 'behindLow', 'behindHigh']) {
@@ -61,4 +62,17 @@ test('follow camera stays at the end the player watches from', () => {
   const ball = { x: 5, y: 2, z: -20 };
   assert.ok(followCam(ball, 'striker').pos[2] > STRIKER_Z);
   assert.ok(followCam(ball, 'bowler').pos[2] < BOWLER_END_Z);
+});
+
+test('a block or soft push keeps the batting camera; a proper shot pulls out to follow it', () => {
+  const hit = (speed, dir, elev) => simulateBattedBall({ x: 0, y: 0.4, z: 8.4 }, launchVelocity(speed, dir, elev));
+  for (const [speed, dir] of [[2.5, 0], [4, 35], [5.5, -30], [7, 10]]) {
+    const b = hit(speed, dir, -6);
+    assert.ok(staysNearBat(b.path, b.boundary), `a ${speed} m/s block at ${dir}° stays near the bat`);
+  }
+  for (const [speed, dir, elev] of [[30, 50, 2], [26, -80, 4], [32, 0, 35], [14, 20, 0]]) {
+    const b = hit(speed, dir, elev);
+    assert.ok(!staysNearBat(b.path, b.boundary), `a ${speed} m/s shot at ${dir}° is followed`);
+  }
+  assert.ok(QUIET_RADIUS > 10 && QUIET_RADIUS < 25);
 });

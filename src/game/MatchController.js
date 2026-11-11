@@ -16,7 +16,7 @@ import { ReviewView } from '../scene/ReviewView.js';
 import { reviewVerdict, aiWantsReview, applyVerdict, VERDICT_TEXT, verdictTone } from './DRS.js';
 import { reviewPromptHTML } from '../ui/HUD.js';
 import { esc, toast, moveFocus, adjustFocused } from '../ui/UI.js';
-import { BATTING_VIEWS, BOWLING_VIEWS, viewEnd, normalizeBattingView, normalizeBowlingView } from '../scene/CameraPoses.js';
+import { BATTING_VIEWS, BOWLING_VIEWS, viewEnd, normalizeBattingView, normalizeBowlingView, staysNearBat } from '../scene/CameraPoses.js';
 import { applyBattingInput, SHOT_HINTS } from './BattingInput.js';
 
 const END_NAMES = ['Pavilion End', 'City End'];
@@ -224,11 +224,24 @@ export class MatchController {
     const sim = this.sim, cams = this.app.cameras;
     if (sim.phase === 'inplay' || (sim.phase === 'dead' && (sim.contactMade || sim.padHit))) {
       if (this.boundaryCamAt != null && sim.t >= this.boundaryCamAt) cams.set('cinematic', { kind: 'boundary', exit: sim.bat?.boundary?.p });
+      else if (this.userBatting && this.quietHit(sim)) cams.set('batting');
       else cams.set('follow', { end: this.viewingEnd });
     } else if (this.userBatting) cams.set('batting');
     else cams.set('bowling', { phase: sim.phase === 'ready' ? 'aim' : 'runup' });
     // In the umpire's-eye view the camera *is* the umpire, so hide that model.
     this.app.view.hideUmpire = this.userBatting && cams.battingView === 'umpire' && cams.mode === 'batting';
+  }
+
+  /**
+   * Batting: a ball that stays near the batter (a block, a soft push, off the pad) keeps the batting camera
+   * instead of pulling out to the wide follow view. Once a ball has gone wide (a misfield sends it away) the
+   * camera follows it for the rest of the ball.
+   */
+  quietHit(sim) {
+    if (this.quiet?.sim !== sim) this.quiet = { sim, path: null, on: true };
+    const q = this.quiet;
+    if (q.on && sim.bat && q.path !== sim.bat) { q.path = sim.bat; q.on = staysNearBat(sim.bat.path, sim.bat.boundary); }
+    return q.on;
   }
 
   cycleCamera() {
