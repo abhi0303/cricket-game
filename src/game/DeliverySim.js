@@ -38,6 +38,13 @@ export const DIVE = { range: 2.4, stretch: 0.25, slide: 0.55, reach: 1.9, total:
 const runnerSpeed = p => 5.9 + 1.6 * (p.fielding / 100);
 const FIELDER_ACCEL = 6;
 const CLEAN_WAIT = 0.9;   // how much later a fielder will take the ball cleanly rather than dive for it (s)
+// Nobody dives for a ball rolling slower than this (m/s): it's run down and picked up (a defensive push, a dribble).
+export const DIVE_MIN_SPEED = 7;
+// Covering the stumps: where the man at each end stands to take a throw, and how far the keeper (or bowler) can
+// go after the ball before someone else has to come and cover his stumps.
+export const STUMPS_SPOT = { striker: { x: 0.35, z: PITCH.half + 0.7 }, nonStriker: { x: 0.5, z: -PITCH.half - 0.6 } };
+export const COVER_FROM = 4;
+const COVER_AFTER = 3;    // ...or, not chasing, can't get back to them within this many seconds
 // From the keeper (or bowler) going for the stumps with the ball to the gloves knocking the bails off; matches
 // the 'stump' animation, so the bails fly when the gloves get there.
 export const STUMP_REACH = 0.16;
@@ -147,6 +154,7 @@ export class DeliverySim {
     this.ball = { state: 'hand', p: { x: 0, y: 1, z: -20 }, holder: null };
     this.bat = null;            // batted path
     this.intercept = null;
+    this.cover = { striker: null, nonStriker: null };   // fielders covering the stumps for the keeper / bowler
     this.awaitThrow = null;
     this.deadAt = null;
     this.inplayStart = null;
@@ -721,8 +729,8 @@ export class DeliverySim {
     this.ball.heldAtEnd = null;
     this.bat = simulateBattedBall(p, v, { startT: Math.min(startT, this.t), alreadyBounced });
     // Bowler and keeper move to the stumps for a throw.
-    this.keeper.target = { x: 0.35, z: PITCH.half + 0.7 };
-    this.bowler.target = { x: 0.5, z: -PITCH.half - 0.6 };
+    this.keeper.target = { ...STUMPS_SPOT.striker };
+    this.bowler.target = { ...STUMPS_SPOT.nonStriker };
     this.planIntercept(excludeId, penalty);
   }
 
@@ -772,10 +780,21 @@ export class DeliverySim {
         if (avail < 0) continue;
         const need = timeToReach(Math.max(0, d - reach), f.speed);
         const dive = need > avail;
+        if (dive && !air && hs < DIVE_MIN_SPEED) continue;   // not worth diving for: run it down instead
         if (dive && timeToReach(Math.max(0, d - reach - 1.3 * hard), f.speed) > avail) continue;
         const pt = { f, t: ti, p: { ...p }, v: { ...path.v[i] }, type: air ? 'catch' : 'stop', dive };
         if (!first) first = pt;
         if (!dive) { clean = pt; break; }
+      }
+      // A ball that stops in the field can always be walked up to and picked up where it lies.
+      if (!clean && !this.bat.boundary && path.duration > 0) {
+        const last = path.t.length - 1, sp = path.p[last];
+        if (sp.y < 0.2 && Math.hypot(path.v[last].x, path.v[last].z) < 0.5) {
+          const tt = Math.max(path.t[last], now + react + timeToReach(Math.max(0, Math.hypot(sp.x - f.x, sp.z - f.z) - 0.6), f.speed));
+          const rest = { f, t: tt, p: { ...sp }, v: { x: 0, y: 0, z: 0 }, type: 'stop', dive: false };
+          if (!first) first = rest;
+          if (!first.dive || first.type !== 'stop' || tt - first.t <= CLEAN_WAIT) clean = rest;
+        }
       }
       if (!first) continue;
       const pick = first.dive && clean && clean.type === first.type && clean.t < bndT ? clean : first;
@@ -803,6 +822,7 @@ export class DeliverySim {
       best.f.arriveBy = best.t;
       this.schedule(best.t, () => { if (token === this.interceptToken) this.onIntercept(best); });
     }
+    this.assignCovers(best);
     if (bnd && !best) {
       // A deep fielder chases it to the rope anyway.
       const chaser = this.fielders.slice().sort((a, b) => Math.hypot(a.x - bnd.p.x, a.z - bnd.p.z) - Math.hypot(b.x - bnd.p.x, b.z - bnd.p.z))[0];
@@ -810,6 +830,41 @@ export class DeliverySim {
       this.schedule(bnd.t, () => { if (token === this.interceptToken && this.ball.state === 'batted') this.onBoundary(bnd); });
     }
     this.emit('interceptPlanned', { intercept: best, boundary: bnd });
+  }
+
+  /**
+   * Someone has to be at each set of stumps to take a throw: the keeper at the batter's end, the bowler at his.
+   * When either goes after the ball away from his stumps, or is too far away to get back to them in time, the
+   * fielder who can get there soonest (and isn't chasing) comes over to cover them. A cover stays until the
+   * ball is dead.
+   */
+  assignCovers(ic) {
+    const chaser = ic?.f || null;
+    for (const end of ['striker', 'nonStriker']) {
+      const primary = end === 'striker' ? this.keeper : this.bowler, spot = STUMPS_SPOT[end];
+      const current = this.cover[end] ? this.fielderById(this.cover[end]) : null;
+      if (current && current !== chaser) { current.target = { ...spot }; continue; }
+      if (current) { current.covering = null; this.cover[end] = null; }
+      const time = f => f.reaction + timeToReach(Math.hypot(spot.x - f.x, spot.z - f.z), f.speed);
+      const away = chaser === primary ? Math.hypot(ic.p.x - spot.x, ic.p.z - spot.z) > COVER_FROM : time(primary) > COVER_AFTER;
+      if (!away) continue;
+      const taken = new Set([chaser?.id, this.cover.striker, this.cover.nonStriker]);
+      const cover = this.fielders.filter(f => !taken.has(f.id)).sort((a, b) => time(a) - time(b))[0];
+      if (!cover) continue;
+      cover.covering = end;
+      cover.target = { ...spot };
+      this.cover[end] = cover.id;
+      this.emit('cover', { end, by: cover.id });
+    }
+  }
+
+  /** Who takes a throw at this end: the keeper or bowler, or whoever is covering for him (not the thrower). */
+  receiverFor(end, thrower) {
+    const spot = STUMPS_SPOT[end];
+    const cands = [end === 'striker' ? this.keeper : this.bowler, this.cover[end] ? this.fielderById(this.cover[end]) : null]
+      .filter(r => r && r !== thrower);
+    const time = r => timeToReach(Math.hypot(spot.x - r.x, spot.z - r.z), r.speed);
+    return cands.sort((a, b) => time(a) - time(b))[0] || null;
   }
 
   onIntercept(ic) {
@@ -900,10 +955,14 @@ export class DeliverySim {
 
   doThrow(f, end) {
     if (this.phase === 'dead') return;
-    const receiver0 = end === 'striker' ? this.keeper : this.bowler;
     const stumpsZ = end === 'striker' ? PITCH.half : -PITCH.half, behind = end === 'striker' ? 1 : -1;
-    if (receiver0 === f) {
-      // Keeper (or bowler) picked it up themselves: run to the stumps with it.
+    const spot = STUMPS_SPOT[end];
+    const receiver = this.receiverFor(end, f);
+    const runTime = r => timeToReach(Math.hypot(spot.x - r.x, spot.z - r.z), r.speed);
+    // The keeper (or bowler, or whoever is covering) picked it up near his own stumps, or nobody else is
+    // there: he runs to the stumps with it.
+    const mine = f === (end === 'striker' ? this.keeper : this.bowler) || this.cover[end] === f.id;
+    if (!receiver || (mine && runTime(f) <= runTime(receiver))) {
       const to = { x: 0.2, z: stumpsZ + behind * 0.6 };
       const d = Math.hypot(to.x - f.x, to.z - f.z);
       f.target = to;
@@ -919,7 +978,7 @@ export class DeliverySim {
     }
     const casual = this.runState === 'idle';
     const speed = (f.throwSpeed || 26) * (casual ? 0.65 : 1);
-    const receiver = receiver0;
+    if (receiver.role === 'fielder') receiver.covering = end;   // a fielder taking it at the stumps runs there
     const wild = !casual && this.rng.chance(0.07 * (1.2 - f.player.fielding / 100));
     // Where the throw is taken: chest-high just behind the stumps, or wide of them for a wild one.
     let to = { x: end === 'striker' ? 0.15 : 0.1, y: 0.85, z: stumpsZ + behind * 0.45 };
@@ -934,11 +993,17 @@ export class DeliverySim {
     // A direct hit flies into the stumps; otherwise the receiver takes it and breaks the wicket with it.
     const direct = !casual && !wild && d < 28 && this.rng.chance(0.18 + 0.25 * f.player.fielding / 100 - d * 0.004);
     if (direct) { to = { x: this.rng.range(-0.06, 0.06), y: this.rng.range(0.25, 0.55), z: stumpsZ }; from = aim(); d = Math.hypot(to.x - from.x, to.z - from.z); }
-    const windup = casual ? 0.35 : 0.3;
+    // Not thrown until there's someone to take it: if the receiver is still on his way, the fielder holds it.
+    const tReady = this.t + timeToReach(Math.hypot(to.x - receiver.x, to.z - receiver.z), receiver.speed);
     const flight = d / speed * (wild ? 1.15 : 1);
+    const windup = (casual ? 0.35 : 0.3) + (direct ? 0 : clamp(tReady - (this.t + 0.3 + flight) + 0.1, 0, 4));
     const tTake = this.t + windup + flight;
     const gather = casual || direct ? 0 : (wild ? 0.6 : 0.2) + this.rng.range(0, 0.25);
-    this.setAction(f, 'throw');
+    if (windup > 0.6) {
+      // holding it, ball in hand, until the man at the stumps is there
+      this.setAction(f, 'ready');
+      this.schedule(this.t + windup - 0.35, () => { if (this.ball.holder === f.id && this.ball.state === 'thrown') this.setAction(f, 'throw'); });
+    } else this.setAction(f, 'throw');
     this.ball.state = 'thrown';
     this.ball.throw = { from, to, start: this.t + windup, dur: flight, end, arc: Math.min(wild ? 7 : 6, d * (wild ? 0.09 : 0.06)) };
     this.ball.throwEnd = end;
@@ -1205,7 +1270,7 @@ export class DeliverySim {
   moveFielders(dt) {
     const bp = this.ball.p;
     for (const f of this.allFielders) {
-      if (f.target && (f.chasing || f.role !== 'fielder')) {
+      if (f.target && (f.chasing || f.covering || f.role !== 'fielder')) {
         if (f.chasing && this.t - (this.inplayStart ?? this.t) < f.reaction) continue;
         const dx = f.target.x - f.x, dz = f.target.z - f.z;
         const d = Math.hypot(dx, dz);
@@ -1215,7 +1280,12 @@ export class DeliverySim {
           f.x += dx / d * step; f.z += dz / d * step;
           f.yaw = Math.atan2(dx, dz);
           if (!['dive', 'catch', 'throw', 'pickup', 'collect'].includes(f.action) || f.actionT > 0.7) this.setAction(f, 'run');
-        } else { f.v = 0; if (f.action === 'run') this.setAction(f, f.isKeeper ? 'crouch' : 'ready'); }
+        } else {
+          f.v = 0;
+          if (f.action === 'run') this.setAction(f, f.isKeeper ? 'crouch' : 'ready');
+          // waiting at the stumps: watch the ball
+          if (bp && !f.chasing && this.ball.holder !== f.id && !['collect', 'catch', 'pickup', 'dive'].includes(f.action)) f.yaw = Math.atan2(bp.x - f.x, bp.z - f.z);
+        }
       } else if (bp && f.action !== 'throw' && this.ball.holder !== f.id) {
         f.v = 0;
         f.yaw = Math.atan2(bp.x - f.x, bp.z - f.z);

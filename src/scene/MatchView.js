@@ -363,7 +363,11 @@ export class MatchView {
         if (actor.target && sim.phase === 'flight') { x = actor.x + (actor.target.x - actor.x) * Math.min(1, (t - (sim.tBallAtBatter ?? t) + 0.4) * 2); }
         break;
       }
-      case 'fielder': { const fc = this.fieldClip(actor, t, v); clip = fc.clip; ct = fc.ct; if (fc.yaw != null) yaw = fc.yaw; break; }
+      case 'fielder': {
+        // a fielder covering the stumps breaks the wicket like the keeper does
+        if (this.stumpBy?.id === actor.id && t - this.stumpBy.t < 1.4) { clip = 'stump'; ct = t - this.stumpBy.t; yaw = this.stumpBy.end === 'striker' ? Math.PI : 0; break; }
+        const fc = this.fieldClip(actor, t, v); clip = fc.clip; ct = fc.ct; if (fc.yaw != null) yaw = fc.yaw; break;
+      }
       case 'umpire': {
         if (actor.action === 'signal' && actor.signal) { clip = 'sig_' + actor.signal; ct = actor.actionT; }
         else { clip = 'umpire'; ct = t; }
