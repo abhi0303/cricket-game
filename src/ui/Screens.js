@@ -16,6 +16,7 @@ import { RNG } from '../utils/Random.js';
 import { BATTING_VIEWS, BOWLING_VIEWS, normalizeBattingView, normalizeBowlingView } from '../scene/CameraPoses.js';
 import { normalizeNetsConfig } from '../game/NetsConfig.js';
 import { netsFormHTML, readNetsForm, netsFormClick, syncNetsFormLabels, refocusNetsForm } from './NetsForm.js';
+import { creditsLineHTML } from './Credits.js';
 
 const ROLE_CLASS = { batsman: 'r-bat', wicketkeeper: 'r-wk', allrounder: 'r-ar', bowler: 'r-bowl' };
 const COLOR_SWATCHES = ['#14806a', '#1f6feb', '#b3261e', '#5b3fa6', '#e07a1f', '#0f8b8d', '#222831', '#ff5a76', '#3d5a40', '#f4d35e', '#ffffff', '#00b4d8'];
@@ -50,6 +51,7 @@ export const MainMenu = {
         <button class="btn" data-go="controls">Controls &amp; Tutorial</button>
       </nav>
       <div class="menu-foot">${app.input.pad.connected ? `🎮 ${esc(app.input.pad.style === 'ps' ? 'PlayStation' : 'Xbox')}-style controller connected` : 'Keyboard ready · connect a controller any time'}</div>
+      <div class="menu-credits">${creditsLineHTML()}</div>
     </div>`;
   },
   bind(root, app) {

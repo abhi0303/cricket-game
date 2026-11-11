@@ -1,0 +1,8 @@
+The ball in this folder (ball.glb, red.jpg, white.jpg) is based on two models by Rohit Pawar, slimmed for the game
+(the stitching simplified, the textures resized, the two balls sharing one shape) by scripts/ball-model.html:
+
+This work is based on "Cricket Ball (Sports)." (https://sketchfab.com/3d-models/cricket-ball-sports-b13a0d69d6ca48d4b125de2cc2e7f940)
+by Rohit Pawar (https://sketchfab.com/rohit8999) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+This work is based on "Cricket Ball (Sports) (White)." (https://sketchfab.com/3d-models/cricket-ball-sports-white-f7fb5ae0d11e4d37a2d9ebccfcba5592)
+by Rohit Pawar (https://sketchfab.com/rohit8999) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

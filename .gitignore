@@ -11,3 +11,6 @@ npm-debug.log*
 
 # Local Pages build (made by the deploy workflow)
 _site/
+
+# Downloaded 3D models (full size). The game uses the slimmed copies in assets/models/, made by scripts/ball-model.html
+models-src/

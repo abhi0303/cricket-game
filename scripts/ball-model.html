@@ -1,0 +1,143 @@
+<!doctype html>
+<!--
+  Ball model builder. Turns the downloaded Sketchfab balls (models-src/red_ball, models-src/white_ball: glTF from
+  "Cricket Ball (Sports)." and "Cricket Ball (Sports) (White)." by Rohit Pawar, CC-BY-4.0) into what the game loads:
+    assets/models/ball/ball.glb    one shape for both balls: the leather sphere and the stitching, radius 1, with the
+                                   seam turned round the equator (the game's ball spins with the seam in that plane)
+    assets/models/ball/red.jpg, white.jpg   the leather textures at 1024 x 1024
+  The stitching is simplified (it's most of the triangles and the ball is small on screen). Open this page from a
+  local server at the repo root; scripts in the game's own tooling save the files.
+-->
+<meta charset="utf-8">
+<title>Ball model</title>
+<style>body { background: #1c1f24; color: #cfd6e0; font: 14px system-ui, sans-serif; margin: 12px; } canvas { width: 480px; height: 480px; }</style>
+<p id="info">Building…</p>
+<canvas id="view" width="960" height="960"></canvas>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { MeshoptSimplifier } from 'https://cdn.jsdelivr.net/npm/meshoptimizer@0.21.0/meshopt_simplifier.module.js';
+
+const SRC = { red: '/models-src/red_ball/', white: '/models-src/white_ball/' };
+const STITCH_KEEP = 0.09;      // share of the stitching's triangles kept
+const TEX = 1024;
+
+/** Smallest-eigenvalue eigenvector of a symmetric 3x3 matrix (Jacobi rotations). */
+function smallestAxis(m) {
+  const a = m.map(r => r.slice()), v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  for (let sweep = 0; sweep < 50; sweep++) {
+    for (const [p, q] of [[0, 1], [0, 2], [1, 2]]) {
+      if (Math.abs(a[p][q]) < 1e-12) continue;
+      const th = 0.5 * Math.atan2(2 * a[p][q], a[q][q] - a[p][p]), c = Math.cos(th), s = Math.sin(th);
+      for (let k = 0; k < 3; k++) { const akp = a[k][p], akq = a[k][q]; a[k][p] = c * akp - s * akq; a[k][q] = s * akp + c * akq; }
+      for (let k = 0; k < 3; k++) { const apk = a[p][k], aqk = a[q][k]; a[p][k] = c * apk - s * aqk; a[q][k] = s * apk + c * aqk; }
+      for (let k = 0; k < 3; k++) { const vkp = v[k][p], vkq = v[k][q]; v[k][p] = c * vkp - s * vkq; v[k][q] = s * vkp + c * vkq; }
+    }
+  }
+  const i = [0, 1, 2].sort((x, y) => a[x][x] - a[y][y])[0];
+  return new THREE.Vector3(v[0][i], v[1][i], v[2][i]).normalize();
+}
+
+async function load(url) {
+  const g = await new GLTFLoader().loadAsync(url + 'scene.gltf');
+  g.scene.updateMatrixWorld(true);
+  let leather = null, map = null;
+  const stitches = [];
+  g.scene.traverse(o => {
+    if (!o.isMesh) return;
+    const geo = o.geometry.clone().applyMatrix4(o.matrixWorld);
+    if (o.material.map) { leather = geo; map = o.material.map; } else stitches.push(geo);
+  });
+  return { leather, map, stitches };
+}
+
+/** Simplify an indexed geometry to `keep` of its triangles and drop the vertices no longer used. */
+function simplify(geo, keep) {
+  const pos = geo.attributes.position.array, idx = new Uint32Array(geo.index.array);
+  const target = Math.floor(idx.length * keep / 3) * 3;
+  const [out] = MeshoptSimplifier.simplify(idx, pos, 3, target, 0.02, []);
+  const remap = new Map(), names = Object.keys(geo.attributes), data = Object.fromEntries(names.map(n => [n, []]));
+  const ni = new Uint32Array(out.length);
+  for (let i = 0; i < out.length; i++) {
+    let j = remap.get(out[i]);
+    if (j === undefined) {
+      j = remap.size; remap.set(out[i], j);
+      for (const n of names) { const a = geo.attributes[n]; for (let k = 0; k < a.itemSize; k++) data[n].push(a.array[out[i] * a.itemSize + k]); }
+    }
+    ni[i] = j;
+  }
+  const g = new THREE.BufferGeometry();
+  for (const n of names) g.setAttribute(n, new THREE.Float32BufferAttribute(data[n], geo.attributes[n].itemSize));
+  g.setIndex(new THREE.BufferAttribute(remap.size < 65536 ? new Uint16Array(ni) : ni, 1));
+  return g;
+}
+
+function textureJPEG(tex) {
+  const c = document.createElement('canvas'); c.width = c.height = TEX;
+  c.getContext('2d').drawImage(tex.image, 0, 0, TEX, TEX);
+  return c.toDataURL('image/jpeg', 0.86);
+}
+
+await MeshoptSimplifier.ready;
+const red = await load(SRC.red), white = await load(SRC.white);
+
+// centre on the leather sphere and scale it to radius 1
+const lp = red.leather.attributes.position;
+const centre = new THREE.Vector3();
+for (let i = 0; i < lp.count; i++) centre.add(new THREE.Vector3().fromBufferAttribute(lp, i));
+centre.divideScalar(lp.count);
+let rad = 0;
+for (let i = 0; i < lp.count; i++) rad += new THREE.Vector3().fromBufferAttribute(lp, i).distanceTo(centre);
+rad /= lp.count;
+const norm = new THREE.Matrix4().makeScale(1 / rad, 1 / rad, 1 / rad).multiply(new THREE.Matrix4().makeTranslation(-centre.x, -centre.y, -centre.z));
+red.leather.applyMatrix4(norm);
+const stitches = mergeGeometries(red.stitches.map(g => { g.deleteAttribute('uv'); return g; })).applyMatrix4(norm);
+
+// the seam's plane: the one the stitching lies closest to. Turn it round the equator (normal +y).
+const sp = stitches.attributes.position, C = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+for (let i = 0; i < sp.count; i++) {
+  const p = [sp.getX(i), sp.getY(i), sp.getZ(i)];
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) C[r][c] += p[r] * p[c];
+}
+const n = smallestAxis(C);
+const turn = new THREE.Matrix4().makeRotationFromQuaternion(new THREE.Quaternion().setFromUnitVectors(n, new THREE.Vector3(0, 1, 0)));
+red.leather.applyMatrix4(turn);
+stitches.applyMatrix4(turn);
+let off = 0;
+for (let i = 0; i < sp.count; i++) off = Math.max(off, Math.abs(stitches.attributes.position.getY(i)));
+
+// weld the stitching (its vertices are split along seams, which stops the simplifier), simplify, then smooth normals
+const before = stitches.index.count / 3;
+stitches.deleteAttribute('normal');
+const welded = mergeVertices(stitches, 1e-4);
+const lite = simplify(welded, STITCH_KEEP);
+lite.computeVertexNormals();
+lite.computeBoundingSphere(); red.leather.computeBoundingSphere();
+
+// export: two meshes, plain materials (the game sets its own)
+const scene = new THREE.Scene();
+const leather = new THREE.Mesh(red.leather, new THREE.MeshStandardMaterial({ name: 'leather' })); leather.name = 'leather';
+const thread = new THREE.Mesh(lite, new THREE.MeshStandardMaterial({ name: 'stitches', color: 0xffe6ba })); thread.name = 'stitches';
+scene.add(leather, thread);
+const glb = await new GLTFExporter().parseAsync(scene, { binary: true });
+const b64 = btoa(Array.from(new Uint8Array(glb), c => String.fromCharCode(c)).join(''));
+
+// preview: the red ball, lit, seam towards the camera's left-right
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('view'), antialias: true });
+const cam = new THREE.PerspectiveCamera(30, 1, 0.1, 50); cam.position.set(0, 1.6, 4.2); cam.lookAt(0, 0, 0);
+const show = new THREE.Scene(); show.background = new THREE.Color('#e8e8e8');
+show.add(new THREE.HemisphereLight('#ffffff', '#666666', 1.6)); const sun = new THREE.DirectionalLight('#ffffff', 2.2); sun.position.set(2, 3, 4); show.add(sun);
+const redMap = red.map; redMap.colorSpace = THREE.SRGBColorSpace;
+show.add(new THREE.Mesh(red.leather, new THREE.MeshStandardMaterial({ map: redMap, roughness: 0.55 })));
+show.add(new THREE.Mesh(lite, new THREE.MeshStandardMaterial({ color: 0xffe6ba, roughness: 0.8 })));
+r.render(show, cam);
+
+const stats = { radius: +rad.toFixed(4), seamNormal: n.toArray().map(v => +v.toFixed(3)), seamHalfWidth: +off.toFixed(3), stitchTris: [before, lite.index.count / 3], leatherTris: red.leather.index ? red.leather.index.count / 3 : red.leather.attributes.position.count / 3, glbKB: Math.round(glb.byteLength / 1024) };
+document.getElementById('info').textContent = JSON.stringify(stats);
+window.__ball = { glb: b64, red: textureJPEG(red.map), white: textureJPEG(white.map), stats, done: true };
+</script>

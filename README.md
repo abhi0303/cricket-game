@@ -221,9 +221,12 @@ src/ui/                         Screens (menus), HUD + overlays, FieldMap (field
 src/audio/Sound.js              procedural Web Audio effects (no audio files)
 assets/preview.jpg              link-preview image (not loaded by the game)
 assets/textures/                the pitch surface (colour and relief)
+assets/models/ball/             the ball model (ball.glb) and its red and white leather (credits in CREDITS.txt)
+models-src/                     downloaded models at full size (not committed; the source for scripts/ball-model.html)
 tests/                          node:test suites
 scripts/physicsReport.mjs       speed x length report vs the 20.12 m baseline (npm run physics-report)
 scripts/pitch-texture.html      generates the pitch textures in assets/textures/ (open it from a local server and download)
+scripts/ball-model.html         turns the downloaded balls in models-src/ into assets/models/ball/
 docs/bowling-physics.md         physics formulas, configuration and the full timing table
 .github/workflows/pages.yml     test + deploy to GitHub Pages
 ```
@@ -263,7 +266,7 @@ Every player is one skinned mesh on a shared 17-bone skeleton: hips, spine, ches
 - **Umpires:** blue shirt, black trousers and a wide-brimmed hat.
 - **Team kit:** colours, side panels, a chest emblem, and the player's name and number on the back. In Tests both sides wear cream whites, with the team colour kept for the trim, name, cap and helmet.
 - **The pitch:** a texture image (assets/textures/pitch.jpg, made by scripts/pitch-texture.html) of dry khaki soil with a patchy network of cracks, thin straw grass that gets greener towards the edges, worn and dusty ends, the bowlers' footmarks at the popping crease, scuffed follow-through rough, spike marks and the batters' guard marks, plus a relief map so the cracks and footmarks catch the light. The creases are painted on top.
-- **The ball:** stitched leather, red in Tests and white otherwise. It has a raised main seam with six rows of stitching, faint quarter seams and a small gold maker's stamp, and new leather has a polish. As the ball gets older (over 80 overs for a red ball, about 25 for a white one) it loses its shine and picks up light scuffs, specks of mud and the odd grass mark. It spins in flight: backspin with the seam upright for pace, turning about its line of flight for spin, tumbling off the bat and rolling on the grass.
+- **The ball:** a 3D model of a leather cricket ball (see Credits), red in Tests and white otherwise: the leather texture, a dark seam groove and six rows of raised stitching. The downloaded models were slimmed for the game by scripts/ball-model.html: both balls share one shape, the stitching was simplified from about 123,000 triangles to 11,000 and the textures resized to 1024 px, so the whole ball is about 1.1 MB instead of 18 MB. Until it has loaded, a ball painted in code stands in. New leather has a polish. As the ball gets older (over 80 overs for a red ball, about 25 for a white one) it loses its shine and picks up light scuffs, specks of mud and the odd grass mark. It spins in flight: backspin with the seam upright for pace, turning about its line of flight for spin, tumbling off the bat and rolling on the grass.
 - **Variety:** each player gets a seeded height, skin tone, hairstyle and facial hair.
 
 Animations include separate fast, medium and spin bowling actions, every batting shot, a play-and-miss reaction, running, the batter's dive for the crease, fielding (ready, chase, high / chest / low catches, two-handed pickup, long barrier, left and right dives, throw, celebrate), keeping (crouch, take, stumping) and the umpire signals (out, not out, four, six, wide, no ball, bye).
@@ -289,6 +292,10 @@ The stumps are whole at the start of each angle and break at the moment the ball
 A match frame is about 110 draw calls. Characters are about 9.5k triangles each (13k for a batter with helmet and bat), or about 5.4k (8.2k) on Low graphics. Animating and solving the IK for all 15 players takes about 0.15 ms per frame.
 
 To inspect them, open `/?debug=characters` (developer tool) with `&view=front|back|side|three|face|bat`, the batter views `bbehind|bside|bfront|bpoint`, and optionally `&anim=<clip>&t=<seconds>&only=0`. Add `&ball=x,y,z&aim=1` to put a ball in the first batter's space (+x towards the bowler, +z the off side) and steer the shot onto it, the same way the match does.
+
+## Credits
+
+- Ball: "Cricket Ball (Sports)." (https://sketchfab.com/3d-models/cricket-ball-sports-b13a0d69d6ca48d4b125de2cc2e7f940) and "Cricket Ball (Sports) (White)." (https://sketchfab.com/3d-models/cricket-ball-sports-white-f7fb5ae0d11e4d37a2d9ebccfcba5592) by Rohit Pawar (https://sketchfab.com/rohit8999), licensed under CC BY 4.0 (http://creativecommons.org/licenses/by/4.0/). Simplified for the game (stitching reduced, textures resized, one shared shape). The credit also shows on the main menu.
 
 ## Known limitations
 

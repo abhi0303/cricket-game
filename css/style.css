@@ -535,3 +535,8 @@ table.sc-tab { width: 100%; border-collapse: collapse; margin-top: 8px; font-siz
 /* Controls & Tutorial: the on-screen hints switch */
 .hint-toggle { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px; font-weight: 600; color: var(--muted); }
 .hint-toggle span { margin-right: 4px; }
+
+/* Main menu: credits for third-party work (CC BY) */
+.menu-credits { margin-top: 8px; font-size: 11px; line-height: 1.4; color: var(--muted); opacity: 0.8; max-width: 520px; }
+.menu-credits a { color: inherit; text-decoration: underline; text-decoration-color: rgba(255, 255, 255, 0.3); }
+.menu-credits a:hover { color: #fff; }

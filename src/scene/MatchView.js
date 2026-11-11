@@ -11,7 +11,7 @@ import { takeYaw } from '../game/DeliverySim.js';
 
 // How each kind of take is animated (see Animations.js TAKE_CT for when the hands meet the ball).
 const TAKE_CLIP = { catchHigh: 'takeHigh', catchChest: 'takeChest', catchLow: 'takeLow', pickup: 'takePickup', barrier: 'takeBarrier' };
-import { ballMaterial, setBallLook } from './BallLook.js';
+import { ballMaterial, setBallLook, registerBall } from './BallLook.js';
 
 const _spinAxis = new THREE.Vector3(), _q = new THREE.Quaternion();
 const SEAM_UP = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);   // seam upright, along the pitch
@@ -53,6 +53,7 @@ export class MatchView {
     // Ball, shadow, trail
     // Leather ball with a stitched seam (red for Tests, white otherwise), spinning in flight.
     this.ball = new THREE.Mesh(new THREE.SphereGeometry(0.055, 28, 18), ballMaterial());
+    registerBall(this.ball, 0.055);   // becomes the 3D ball model (leather and stitching) once it's loaded
     this.ball.castShadow = false;
     this.ballSpin = 0;
     this.look = { whites: false, ball: 'white', wear: 0 };

@@ -7,7 +7,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { getClip, emptyPose, copyPose, blendPose, JOINTS, CONTACT_T, SWEET, BAT_LEN } from './Animations.js';
 import { jerseyBackTexture, emblemTexture } from './Textures.js';
 import { BONES, PARENT, OFFSET, LIMB, HIP_HEIGHT, buildBody, buildHelmet, buildCap, buildUmpireHat, buildBatHandle, buildBatBlade, shade } from './CharacterGeometry.js';
-import { ballMaterial, setBallEnvironment } from './BallLook.js';
+import { ballMaterial, setBallEnvironment, registerBall } from './BallLook.js';
 import { bladeMaterial, batBrandFor, setBatEnvironment } from './BatLook.js';
 
 const DEG = Math.PI / 180;
@@ -154,6 +154,7 @@ export class PlayerModel {
     }
     // --- ball in the bowling hand
     this.ball = new THREE.Mesh(ballGeo, ballMaterial());
+    registerBall(this.ball, 0.05);
     this.ball.visible = false;
     this.b.handR.add(this.ball);
     this.ball.position.set(0.024, -0.085, 0.004);
