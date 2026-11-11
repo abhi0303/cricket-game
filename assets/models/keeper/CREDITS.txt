@@ -1,0 +1,6 @@
+The keeper in this folder (keeper.glb, base.jpg, normal.jpg) is based on a model by kanesk06, adapted for the game
+(simplified, rigged with a skeleton and skin weights, textures resized; the kit is recoloured in the game) by
+scripts/keeper-model.html:
+
+This work is based on "Stylized Cricketer" (https://sketchfab.com/3d-models/stylized-cricketer-8bb84d0f58dd4dac9d85d3a2e02c176b)
+by kanesk06 (https://sketchfab.com/kanesk06) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

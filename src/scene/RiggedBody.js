@@ -4,7 +4,9 @@
 // and its feet onto the same places on the ground with two-bone IK, so the model's own proportions don't matter.
 //
 // The batsman (assets/models/batsman, made by scripts/batsman-model.html) is "Virat Kohli Cricket Batting
-// Animation - Low Poly" by bhagathartworks, CC BY 4.0: a low-poly body on a Mixamo skeleton.
+// Animation - Low Poly" by bhagathartworks, CC BY 4.0: a low-poly body on a Mixamo skeleton. The keeper
+// (assets/models/keeper) is "Stylized Cricketer" by kanesk06, CC BY 4.0, rigged by scripts/keeper-model.html with
+// the same bone names; his orange shirt and navy trousers are recoloured to the team's kit (whites in Tests).
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
@@ -12,7 +14,44 @@ import { OFFSET, PARENT, LIMB } from './CharacterGeometry.js';
 
 export const BODIES = {
   batsman: { glb: 'assets/models/batsman/batsman.glb', tex: 'assets/models/batsman/body.jpg' },
+  keeper: {
+    glb: 'assets/models/keeper/keeper.glb', tex: 'assets/models/keeper/base.jpg', normal: 'assets/models/keeper/normal.jpg',
+    // the kit colours in the texture, swapped for the team's (PlayerModel.kit: shirt, trousers)
+    recolor: { shirt: [205, 84, 41], trousers: [45, 45, 64] },
+  },
 };
+
+const hexRGB = h => { const n = parseInt(String(h).replace('#', '').slice(0, 6), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const lum = ([r, g, b]) => 0.3 * r + 0.59 * g + 0.11 * b;
+
+/**
+ * The texture with its shirt and trousers in a kit's colours, keeping the shading: each kit pixel takes the new
+ * colour scaled by how light or dark it was against the original colour. The skin, hair, gloves and shoes stay.
+ */
+function recolor(img, rc, kit) {
+  const c = document.createElement('canvas');
+  c.width = img.width; c.height = img.height;
+  const g = c.getContext('2d');
+  g.drawImage(img, 0, 0);
+  const data = g.getImageData(0, 0, c.width, c.height), d = data.data;
+  const swaps = [
+    { test: (r, gg, b) => r > 90 && gg < r * 0.58 && b < r * 0.42, from: lum(rc.shirt), to: hexRGB(kit.shirt) },                          // orange shirt
+    { test: (r, gg, b) => b > r + 6 && b > gg + 6 && r < 95 && Math.abs(r - gg) < 14, from: lum(rc.trousers), to: hexRGB(kit.trousers) },  // navy trousers and panels
+  ];
+  for (const s of swaps) s.light = lum(s.to) > 150;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], gg = d[i + 1], b = d[i + 2];
+    for (const s of swaps) {
+      if (!s.test(r, gg, b)) continue;
+      let k = lum([r, gg, b]) / s.from;
+      if (s.light) k = 0.82 + 0.18 * k;                       // a pale kit: keep the folds, don't blow out
+      d[i] = Math.min(255, s.to[0] * k); d[i + 1] = Math.min(255, s.to[1] * k); d[i + 2] = Math.min(255, s.to[2] * k);
+      break;
+    }
+  }
+  g.putImageData(data, 0, 0);
+  return c;
+}
 
 // our bone -> the model's (Mixamo names, as the glTF loader gives them: "mixamorigLeftArm_09")
 const MAP = {
@@ -34,13 +73,23 @@ const templates = new Map();   // name -> Promise<{ scene, material }>
 export function loadBody(name) {
   if (!templates.has(name)) {
     const def = BODIES[name];
-    templates.set(name, Promise.all([new GLTFLoader().loadAsync(def.glb), new THREE.TextureLoader().loadAsync(def.tex)]).then(([gltf, map]) => {
-      map.colorSpace = THREE.SRGBColorSpace;
-      map.flipY = false;                      // glTF texture coordinates
-      map.anisotropy = 4;
-      const material = new THREE.MeshStandardMaterial({ map, roughness: 0.88, metalness: 0 });
+    const tl = new THREE.TextureLoader();
+    templates.set(name, Promise.all([new GLTFLoader().loadAsync(def.glb), tl.loadAsync(def.tex), def.normal ? tl.loadAsync(def.normal) : null]).then(([gltf, map, normalMap]) => {
+      const prep = (t, srgb) => { if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; t.anisotropy = 4; return t; };   // glTF texture coordinates
+      prep(map, true);
+      if (normalMap) prep(normalMap, false);
+      const make = m => new THREE.MeshStandardMaterial({ map: m, normalMap, roughness: 0.88, metalness: 0 });
+      const material = make(map);
       gltf.scene.traverse(o => { if (o.isSkinnedMesh) o.material = material; });
-      return { scene: gltf.scene, material };
+      // per kit: the texture recoloured to the team's shirt and trousers (cached)
+      const kits = new Map();
+      const materialFor = kit => {
+        if (!def.recolor || !kit) return material;
+        const key = `${kit.shirt}|${kit.trousers}`;
+        if (!kits.has(key)) kits.set(key, make(prep(new THREE.CanvasTexture(recolor(map.image, def.recolor, kit)), true)));
+        return kits.get(key);
+      };
+      return { scene: gltf.scene, material, materialFor };
     }));
   }
   return templates.get(name);
@@ -71,6 +120,7 @@ export class RiggedBody {
     const aimBone = {};
     for (const [k, [, theirs]] of Object.entries(AIM)) aimBone[k] = findBone(this.scene, theirs);
     this.scene.traverse(o => { if (o.isSkinnedMesh) { o.castShadow = true; o.frustumCulled = false; this.mesh = o; } });
+    this.mesh.material = template.materialFor(model.kit);
     // the bind pose (pose() works from the parents' world matrices, so bring those up to date first)
     this.scene.updateMatrixWorld(true);
     this.mesh.skeleton.pose();

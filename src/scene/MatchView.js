@@ -127,7 +127,7 @@ export class MatchView {
     add(sim.bowler, this.modelFor(sim.bowler.player, bowlingTeam, 'fielder'), 'bowler');
     // In the nets it's just batter and bowler: no keeper, fielders or umpires.
     if (!sim.nets) {
-      const keeper = this.modelFor(sim.keeper.player, bowlingTeam, 'keeper');
+      const keeper = this.modelFor(sim.keeper.player, bowlingTeam, 'keeper', 'keeper');   // the keeper model, in this team's kit
       keeper.setKeeperHelmet(sim.kind === 'spin');
       add(sim.keeper, keeper, 'keeper');
       for (const f of sim.fielders) add(f, this.modelFor(f.player, bowlingTeam, 'fielder'), 'fielder');

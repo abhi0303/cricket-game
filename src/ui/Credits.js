@@ -15,6 +15,10 @@ export const CREDITS = [
     what: 'Batsman', title: 'Virat Kohli Cricket Batting Animation - Low Poly', author: 'bhagathartworks', authorUrl: 'https://sketchfab.com/bhagathartworks',
     url: 'https://sketchfab.com/3d-models/virat-kohli-cricket-batting-animation-low-poly-a21f5e7ee14f4b6aa5cf6c94a1016932', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
   },
+  {
+    what: 'Keeper', title: 'Stylized Cricketer', author: 'kanesk06', authorUrl: 'https://sketchfab.com/kanesk06',
+    url: 'https://sketchfab.com/3d-models/stylized-cricketer-8bb84d0f58dd4dac9d85d3a2e02c176b', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
+  },
 ];
 
 const a = (href, text) => `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(text)}</a>`;

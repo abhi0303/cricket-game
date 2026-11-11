@@ -1,0 +1,173 @@
+<!doctype html>
+<!--
+  Keeper model builder. The downloaded "Stylized Cricketer" by kanesk06 (CC-BY-4.0; models-src/keeper) is a static
+  mesh with no skeleton, so this rigs it: it scales it to 1.8 m, simplifies it, puts a Mixamo-style skeleton in it at
+  the joints found from its shape (the JOINTS table below), works out skin weights along each limb and the trunk,
+  and saves what the game loads:
+    assets/models/keeper/keeper.glb    the skinned mesh (bind pose: as modelled), no textures
+    assets/models/keeper/base.jpg, normal.jpg   its colour and normal maps at 1024 x 1024
+  The game drives the skeleton from its own animation (src/scene/RiggedBody.js). Open from a local server at the repo
+  root; ?pose=crouch|arms|bind shows a test pose.
+-->
+<meta charset="utf-8">
+<title>Keeper model</title>
+<style>body { background: #1c1f24; color: #cfd6e0; font: 14px system-ui, sans-serif; margin: 12px; } canvas { width: 900px; height: 600px; }</style>
+<p id="info">Building…</p>
+<canvas id="view" width="1350" height="900"></canvas>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { MeshoptSimplifier } from 'https://cdn.jsdelivr.net/npm/meshoptimizer@0.21.0/meshopt_simplifier.module.js';
+
+const SRC = '/models-src/keeper/scene.gltf', HEIGHT = 1.8, KEEP = 0.4, TEX = 1024;
+const ZC = -0.1;   // the body's centre front-to-back (the mesh is modelled a little behind z = 0)
+// Joints (metres, feet on y = 0, facing +z, +x the character's left), read off the mesh's shape. Right side mirrors.
+const J = {
+  Hips: [0, 0.82, ZC], Spine: [0, 0.93, ZC], Spine1: [0, 1.05, ZC], Spine2: [0, 1.2, ZC], Neck: [0, 1.47, -0.09], Head: [0, 1.56, -0.07], HeadTop_End: [0, 1.8, -0.07],
+  LeftArm: [0.19, 1.37, -0.1], LeftForeArm: [0.41, 1.22, -0.1], LeftHand: [0.62, 1.08, -0.09], LeftHandIndex1: [0.76, 1.03, -0.08],
+  LeftUpLeg: [0.1, 0.8, -0.11], LeftLeg: [0.11, 0.45, -0.14], LeftFoot: [0.11, 0.09, -0.15], LeftToeBase: [0.11, 0.03, 0.03],
+};
+for (const k of Object.keys(J)) if (k.startsWith('Left')) { const r = J[k].slice(); r[0] = -r[0]; J[k.replace('Left', 'Right')] = r; }
+const PARENT = {
+  Spine: 'Hips', Spine1: 'Spine', Spine2: 'Spine1', Neck: 'Spine2', Head: 'Neck', HeadTop_End: 'Head',
+  LeftArm: 'Spine2', LeftForeArm: 'LeftArm', LeftHand: 'LeftForeArm', LeftHandIndex1: 'LeftHand',
+  RightArm: 'Spine2', RightForeArm: 'RightArm', RightHand: 'RightForeArm', RightHandIndex1: 'RightHand',
+  LeftUpLeg: 'Hips', LeftLeg: 'LeftUpLeg', LeftFoot: 'LeftLeg', LeftToeBase: 'LeftFoot',
+  RightUpLeg: 'Hips', RightLeg: 'RightUpLeg', RightFoot: 'RightLeg', RightToeBase: 'RightFoot',
+};
+const NAMES = Object.keys(J);
+const V = n => new THREE.Vector3(...J[n]);
+const smooth = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+// ---------------------------------------------------------------- load, scale, simplify
+await MeshoptSimplifier.ready;
+const g = await new GLTFLoader().loadAsync(SRC);
+g.scene.updateMatrixWorld(true);
+let src = null; g.scene.traverse(o => { if (o.isMesh) src = o; });
+let geo = src.geometry.clone().applyMatrix4(src.matrixWorld);
+geo.computeBoundingBox();
+const bb = geo.boundingBox, sc = HEIGHT / (bb.max.y - bb.min.y);
+geo.applyMatrix4(new THREE.Matrix4().makeScale(sc, sc, sc).multiply(new THREE.Matrix4().makeTranslation(-(bb.max.x + bb.min.x) / 2, -bb.min.y, 0)));
+for (const n of ['tangent', 'uv1', 'uv2']) geo.deleteAttribute(n);
+const before = geo.index.count / 3;
+{
+  const idx = new Uint32Array(geo.index.array), pos = geo.attributes.position.array;
+  const [out] = MeshoptSimplifier.simplify(idx, pos, 3, Math.floor(idx.length * KEEP / 3) * 3, 0.004, ['LockBorder']);
+  const remap = new Map(), names = Object.keys(geo.attributes), data = Object.fromEntries(names.map(n => [n, []]));
+  const ni = new Uint32Array(out.length);
+  for (let i = 0; i < out.length; i++) {
+    let j = remap.get(out[i]);
+    if (j === undefined) { j = remap.size; remap.set(out[i], j); for (const n of names) { const a = geo.attributes[n]; for (let k = 0; k < a.itemSize; k++) data[n].push(a.array[out[i] * a.itemSize + k]); } }
+    ni[i] = j;
+  }
+  const s2 = new THREE.BufferGeometry();
+  for (const n of names) s2.setAttribute(n, new THREE.Float32BufferAttribute(data[n], geo.attributes[n].itemSize));
+  s2.setIndex(new THREE.BufferAttribute(remap.size < 65536 ? new Uint16Array(ni) : ni, 1));
+  geo = s2;
+}
+
+// ---------------------------------------------------------------- skeleton
+const bones = {};
+for (const n of NAMES) { const b = new THREE.Bone(); b.name = 'mixamorig' + n; bones[n] = b; }
+for (const n of NAMES) {
+  const p = PARENT[n];
+  if (p) { bones[p].add(bones[n]); bones[n].position.copy(V(n).sub(V(p))); } else bones[n].position.copy(V(n));
+}
+
+// ---------------------------------------------------------------- skin weights
+// Each vertex belongs to an arm, a leg or the trunk, and within it is weighted along the chain with smooth hand-overs
+// at the joints (and into the trunk at the shoulders and hips).
+const idxOf = Object.fromEntries(NAMES.map((n, i) => [n, i]));
+const P = geo.attributes.position, N = P.count;
+const skinIndex = new Uint16Array(N * 4), skinWeight = new Float32Array(N * 4);
+const crotch = 0.69;
+const segParam = (v, a, b) => { const ab = b.clone().sub(a); return v.clone().sub(a).dot(ab) / ab.lengthSq(); };
+const distToLine = (v, a, b) => { const t = segParam(v, a, b), ab = b.clone().sub(a); return v.distanceTo(a.clone().addScaledVector(ab, t)); };
+const trunk = y => {
+  // Hips | Spine | Spine1 | Spine2 | Neck | Head, handing over across ±4 cm at each joint
+  const cuts = [['Hips', 'Spine', J.Spine[1]], ['Spine', 'Spine1', J.Spine1[1]], ['Spine1', 'Spine2', J.Spine2[1]], ['Spine2', 'Neck', J.Neck[1] - 0.02], ['Neck', 'Head', J.Head[1] + 0.02]];
+  for (const [lo, hi, at] of cuts) {
+    if (y < at + 0.04) { const t = smooth(at - 0.04, at + 0.04, y); return [[lo, 1 - t], [hi, t]]; }
+  }
+  return [['Head', 1]];
+};
+const stats = { arm: 0, leg: 0, trunk: 0 };
+for (let i = 0; i < N; i++) {
+  const v = new THREE.Vector3().fromBufferAttribute(P, i);
+  const side = v.x >= 0 ? 'Left' : 'Right';
+  const S = V(side + 'Arm'), E = V(side + 'ForeArm'), W = V(side + 'Hand'), T = V(side + 'HandIndex1').multiplyScalar(2).sub(W);
+  let w = null;
+  // arm: beyond the shoulder along the arm's line, close to it (the gloved hand, fingers spread, is wider)
+  const tArm = segParam(v, S, T), armLen = T.distanceTo(S), along = tArm * armLen;
+  const tE = segParam(E, S, T) * armLen, tW = segParam(W, S, T) * armLen;
+  const reach = along > tW - 0.04 ? 0.24 : 0.12;
+  if (Math.abs(v.x) > Math.abs(S.x) - 0.05 && along > -0.03 && distToLine(v, S, T) < reach && v.y > 0.85) {
+    const we = smooth(tE - 0.05, tE + 0.05, along), ww = smooth(tW - 0.03, tW + 0.03, along);
+    const into = 1 - smooth(-0.03, 0.07, along);                 // shoulder: shared with the chest
+    w = [[side + 'Arm', (1 - we) * (1 - into)], [side + 'ForeArm', we * (1 - ww)], [side + 'Hand', ww], ['Spine2', into]];
+    stats.arm++;
+  } else if (v.y < crotch + 0.13) {
+    // leg (and the seat, shared with the hips)
+    const K = V(side + 'Leg'), A = V(side + 'Foot');
+    const wk = smooth(K.y + 0.05, K.y - 0.05, v.y), wa = smooth(A.y + 0.04, A.y - 0.02, v.y);
+    const hip = smooth(crotch - 0.02, crotch + 0.13, v.y) * (Math.abs(v.x) < 0.17 ? 1 : 0.6);
+    w = [[side + 'UpLeg', (1 - wk) * (1 - hip)], [side + 'Leg', wk * (1 - wa) * (1 - hip)], [side + 'Foot', wa * (1 - hip)], ['Hips', hip]];
+    stats.leg++;
+  } else { w = trunk(v.y); stats.trunk++; }
+  w = w.filter(([, x]) => x > 1e-4).sort((a, b) => b[1] - a[1]).slice(0, 4);
+  const sum = w.reduce((s, [, x]) => s + x, 0) || 1;
+  for (let k = 0; k < 4; k++) {
+    skinIndex[i * 4 + k] = w[k] ? idxOf[w[k][0]] : 0;
+    skinWeight[i * 4 + k] = w[k] ? w[k][1] / sum : 0;
+  }
+}
+geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndex, 4));
+geo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeight, 4));
+
+const mesh = new THREE.SkinnedMesh(geo, new THREE.MeshStandardMaterial({ name: 'keeper', roughness: 0.85 }));
+mesh.name = 'keeperBody';
+const root = new THREE.Group(); root.name = 'keeperRig';
+root.add(bones.Hips); root.add(mesh);
+root.updateMatrixWorld(true);
+mesh.bind(new THREE.Skeleton(NAMES.map(n => bones[n])));
+
+// ---------------------------------------------------------------- textures and export
+const jpeg = tex => { const c = document.createElement('canvas'); c.width = c.height = TEX; c.getContext('2d').drawImage(tex.image, 0, 0, TEX, TEX); return c.toDataURL('image/jpeg', 0.88); };
+const m0 = src.material;
+const base = jpeg(m0.map), normal = jpeg(m0.normalMap);
+const glb = await new GLTFExporter().parseAsync(root, { binary: true, animations: [] });
+const b64 = btoa(Array.from(new Uint8Array(glb), ch => String.fromCharCode(ch)).join(''));
+
+// ---------------------------------------------------------------- preview: bind pose with joints, and a test pose
+const pose = new URLSearchParams(location.search).get('pose') || 'bind';
+mesh.material = new THREE.MeshStandardMaterial({ map: m0.map, normalMap: m0.normalMap, roughness: 0.8 });
+const D = Math.PI / 180;
+if (pose === 'arms' || pose === 'crouch') {
+  bones.LeftArm.rotation.z = -50 * D; bones.RightArm.rotation.z = 50 * D;
+  bones.LeftForeArm.rotation.x = -60 * D; bones.RightForeArm.rotation.x = -60 * D;
+}
+if (pose === 'crouch') {
+  bones.Hips.position.y -= 0.42; bones.Spine.rotation.x = 25 * D;
+  for (const s of ['Left', 'Right']) { bones[s + 'UpLeg'].rotation.x = -100 * D; bones[s + 'Leg'].rotation.x = 120 * D; bones[s + 'Foot'].rotation.x = -20 * D; }
+  bones.LeftUpLeg.rotation.z = 25 * D; bones.RightUpLeg.rotation.z = -25 * D;
+}
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('view'), antialias: true });
+r.outputColorSpace = THREE.SRGBColorSpace;
+const show = new THREE.Scene(); show.background = new THREE.Color('#dddddd');
+show.add(new THREE.HemisphereLight('#fff', '#777', 2)); const sun = new THREE.DirectionalLight('#fff', 2); sun.position.set(2, 4, 5); show.add(sun);
+show.add(root);
+if (pose === 'bind') for (const n of NAMES) { const s = new THREE.Mesh(new THREE.SphereGeometry(0.018, 10, 8), new THREE.MeshBasicMaterial({ color: '#00c', depthTest: false })); s.position.copy(V(n)); s.renderOrder = 9; show.add(s); }
+const cam = new THREE.PerspectiveCamera(30, 0.5, 0.05, 50);
+r.setScissorTest(true);
+[[0, 0.9, 5.2], [5.2, 0.9, ZC], [3.6, 2.2, 3.6]].forEach((p, i) => {
+  cam.position.set(...p); cam.lookAt(0, pose === 'crouch' ? 0.6 : 0.9, ZC);
+  r.setViewport(i * 450, 0, 450, 900); r.setScissor(i * 450, 0, 450, 900); r.render(show, cam);
+});
+const st = { tris: [before, geo.index.count / 3], verts: N, ...stats, glbKB: Math.round(glb.byteLength / 1024) };
+document.getElementById('info').textContent = JSON.stringify(st);
+window.__keeper = { glb: b64, base, normal, stats: st, done: true };
+</script>

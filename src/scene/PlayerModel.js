@@ -74,6 +74,7 @@ const ballGeo = new THREE.SphereGeometry(0.05, 20, 14);
 const WHITES = { shirt: '#f3f1e9', trousers: '#ebe7da' };
 const luminance = hex => { const n = parseInt(hex.slice(1, 7), 16); return (0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255; };
 const emblemCache = new Map();
+const HIDDEN = new THREE.MeshBasicMaterial({ visible: false });
 
 export class PlayerModel {
   /**
@@ -175,6 +176,7 @@ export class PlayerModel {
         badge.position.set(0.078, 0.135, 0.131);
         badge.rotation.y = 0.32;
         this.b.chest.add(badge);
+        this.badge = badge;
       }
     }
 
@@ -197,13 +199,15 @@ export class PlayerModel {
     loadBody(name).then(t => {
       if (this.bodyName !== name || this.body) return;
       this.body = new RiggedBody(t, this);
-      this.mesh.visible = false;
+      // the built-in body stops drawing (its skeleton still animates, and the ball in the hand still shows)
+      this.mesh.material = HIDDEN;
+      for (const o of [this.helmet, this.cap, this.hat, this.backPlate, this.badge]) if (o) o.visible = false;
       this.body.update();
     }).catch(err => console.warn(`Body "${name}" not loaded; keeping the built-in one.`, err));
   }
 
   setKeeperHelmet(on) {
-    if (!this.helmet || !this.cap) return;
+    if (!this.helmet || !this.cap || this.bodyName) return;   // a worn model has its own head
     this.helmet.visible = on;
     this.cap.visible = !on;
   }
