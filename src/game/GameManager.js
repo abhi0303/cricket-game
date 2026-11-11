@@ -2,6 +2,7 @@
 import { SCREENS } from '../ui/Screens.js';
 import { esc, toast, moveFocus, adjustFocused, glyph } from '../ui/UI.js';
 import { MatchController } from './MatchController.js';
+import { NetsController } from './NetsController.js';
 import { MatchEngine } from './MatchEngine.js';
 import { createDefaultUserTeam, generateCpuTeam, validatePlayingXI, autoSelectXI, reconcileBattingOrder } from './TeamManager.js';
 import { normalizePlayer } from './PlayerAttributes.js';
@@ -197,6 +198,34 @@ export class GameManager {
     this.screen = 'toss';
     SCREENS.toss.state = null;
     this.render();
+  }
+
+  // ------------------------------------------------------------------ net practice
+  netsConfig() { return Storage.get('nets') || {}; }
+  saveNetsConfig(cfg) { Storage.set('nets', cfg); }
+
+  /** Start a net session with the chosen bowler (in the current stadium, with the stands empty). */
+  startNets(cfg) {
+    this.saveNetsConfig(cfg);
+    this.sound.resume();
+    this.demo.stop();
+    const s = this.settings;
+    if (this.stadium.stadiumId !== s.stadium || this.stadium.quality !== s.quality) {
+      this.stadium.quality = s.quality;
+      this.stadium.build(s.stadium || 'harbour', s.timeOfDay || 'day');
+    } else this.stadium.setTimeOfDay(s.timeOfDay || 'day');
+    this.uiRoot.classList.add('hidden');
+    document.activeElement?.blur?.();
+    this.match = new NetsController(this, cfg);
+    this.match.start();
+  }
+
+  /** Leave the nets for the Net Practice screen ('nets') or the main menu. */
+  leaveNets(to = 'main') {
+    if (this.match) this.match.destroy();
+    this.match = null;
+    this.demo.start('menu');
+    this.go(to);
   }
 
   // ------------------------------------------------------------------ per frame

@@ -11,7 +11,8 @@ import { RNG, clamp } from '../utils/Random.js';
 import { HUD, renderOverlay, hideOverlay, pauseHTML, bowlerSelectHTML, inningsBreakHTML, resultHTML, scorecardHTML, settingsHTML, skipHTML, simulatingHTML, updateSimulating } from '../ui/HUD.js';
 import { simulateBalls, chaseFinishReached } from './SkipSim.js';
 import { esc, toast, moveFocus, adjustFocused } from '../ui/UI.js';
-import { BATTING_VIEWS, BOWLING_VIEWS, viewEnd, viewMirrored, normalizeBattingView, normalizeBowlingView } from '../scene/CameraPoses.js';
+import { BATTING_VIEWS, BOWLING_VIEWS, viewEnd, normalizeBattingView, normalizeBowlingView } from '../scene/CameraPoses.js';
+import { applyBattingInput } from './BattingInput.js';
 
 const END_NAMES = ['Pavilion End', 'City End'];
 
@@ -213,34 +214,11 @@ export class MatchController {
   // ------------------------------------------------------------------ input
   handleControls(dt) {
     const sim = this.sim, input = this.input;
-    // While batting, the keys that move the batter across the crease (← →) don't also aim the shot.
-    const ax = this.userBatting ? input.axis(['moveLeft', 'moveRight'], 'batting') : input.axis();
     if (this.userBatting) {
-      // Watching from the bowler's end the picture is mirrored: keep "right" meaning screen-right.
-      const mirror = viewMirrored(this.app.cameras.battingView) ? -1 : 1;
-      ax.x *= mirror;
-      input.setProfile('batting');
-      if (!this.humanBall) { this.app.view.setShotArrow(0, 0, false); return; }
-      // Shuffle across the crease to cover the line (screen left/right, + = towards the off side).
-      const move = (input.value('moveRight') - input.value('moveLeft')) * mirror;
-      if (move) sim.moveGuard(move, dt);
-      const aiming = (sim.phase === 'runup' || sim.phase === 'flight' || sim.phase === 'ready') && !sim.shot;
-      this.app.view.setShotArrow(ax.x, ax.y, aiming && Math.hypot(ax.x, ax.y) > 0.25);
-      if (sim.phase === 'flight' && !sim.shot) {
-        for (const b of ['defend', 'ground', 'lofted', 'advanced', 'leave']) {
-          if (input.pressed(b)) {
-            sim.inputShot({ button: b, sx: ax.x, sy: ax.y, power: input.value('power') > 0.5, precision: input.value('precision') > 0.5, age: input.pressAge(b) });
-            break;
-          }
-        }
-      }
-      if (sim.phase === 'inplay') {
-        if (input.pressed('run')) sim.inputRun('run');
-        if (input.pressed('cancelRun')) sim.inputRun('back');
-      }
-      const look = input.lookAxis();
-      this.app.cameras.look = { x: look.x, y: look.y };
+      if (!this.humanBall) { input.setProfile('batting'); this.app.view.setShotArrow(0, 0, false); return; }
+      applyBattingInput(this.app, sim, dt);
     } else if (this.userBowling) {
+      const ax = input.axis();
       this.app.view.setShotArrow(0, 0, false);
       if (sim.awaitThrow) {
         input.setProfile('fielding');

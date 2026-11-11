@@ -337,3 +337,53 @@ table.card tfoot td { text-align: left; }
   .hud-end { display: none; }
 }
 @media (max-height: 620px) { .hints { display: none; } }
+
+/* ---------------------------------------------------------- net practice */
+.nets-setup h1 small { display: block; margin: 4px 0 0; }
+.nets-form h3 { margin-top: 16px; }
+.ntypes { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.ntype { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 10px 12px; border-radius: 12px; background: #0e1a30; border: 1px solid var(--line); cursor: pointer; transition: border-color 0.12s, background 0.12s; }
+.ntype b { font: 700 19px var(--head); letter-spacing: 0.4px; }
+.ntype small { color: var(--muted); font-size: 12px; opacity: 1; }
+.ntype:hover, .ntype:focus-visible { border-color: var(--accent); }
+.ntype.sel { background: linear-gradient(135deg, #1d6b3a, #2b9348); border-color: var(--ok); }
+.ntype.sel small { color: #e2f7e9; }
+.nf-speeds { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; }
+.seg { display: inline-flex; gap: 6px; }
+.nf-speed { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 0 10px; min-width: 220px; flex: 1; }
+.nf-speed b { justify-self: end; font: 700 18px var(--head); color: var(--text); }
+.nf-speed output { color: var(--accent); font-size: 30px; }
+.nf-speed input { grid-column: 1 / -1; width: 100%; }
+.nf-note { margin: 8px 0 0; font-size: 13px; }
+.nf-help { margin-top: 16px; font-size: 13px; }
+.nets-summary { grid-template-columns: repeat(3, 1fr); }
+.nets-setup .actions { position: sticky; bottom: -22px; margin: 14px -26px -22px; padding: 12px 26px 16px; background: linear-gradient(180deg, rgba(10, 18, 34, 0), rgba(10, 18, 34, 0.97) 30%); }
+.nb-chips { display: flex; gap: 4px; }
+
+/* nets HUD: bowler card (top right) and the session strip (bottom) */
+.nets-card { background: rgba(8, 14, 28, 0.8); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 14px; padding: 8px 11px; font: 600 12.5px var(--body); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+.nc-title { font: 700 13px var(--head); letter-spacing: 1.6px; color: var(--ok); text-transform: uppercase; margin-bottom: 3px; }
+.nc-row { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; border-top: 1px solid rgba(255, 255, 255, 0.07); }
+.nc-row span { color: #9fb0cc; }
+.nc-row b { color: #fff; text-align: right; }
+.hud-last b { color: var(--accent); }
+.netsbar { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); width: min(1120px, calc(100vw - 24px)); height: 62px; display: grid; grid-template-columns: minmax(170px, 1.25fr) repeat(5, minmax(62px, 0.55fr)) minmax(190px, 1.45fr); border-radius: 4px; overflow: hidden; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); font-family: var(--head); }
+.nb-head { display: flex; flex-direction: column; justify-content: center; padding: 0 14px; background: linear-gradient(180deg, #1f7a42, #12502a); color: #fff; min-width: 0; }
+.nb-head b { font-size: 19px; letter-spacing: 1.5px; }
+.nb-head span { font-size: 14px; color: #d4f2df; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nb-stat { display: flex; flex-direction: column; justify-content: center; align-items: center; background: linear-gradient(180deg, #2f47a8, #1b2a72); color: #fff; border-left: 1px solid rgba(255, 255, 255, 0.16); }
+.nb-stat span { font-size: 11.5px; letter-spacing: 1px; text-transform: uppercase; color: #b8c6f0; }
+.nb-stat b { font-size: 22px; line-height: 1.1; }
+.nb-hist { display: flex; align-items: center; gap: 5px; padding: 0 12px; background: linear-gradient(180deg, #f4f6fb, #d9dfeb); color: #1a2240; font-weight: 700; min-width: 0; overflow: hidden; }
+@media (max-width: 900px) {
+  .ntypes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .nets-summary { grid-template-columns: 1fr 1fr; }
+  .netsbar { grid-template-columns: minmax(140px, 1.2fr) repeat(4, minmax(56px, 0.6fr)); height: 56px; }
+  .netsbar > .nb-stat:nth-of-type(6), .nb-hist { display: none; }
+}
+@media (max-width: 640px) {
+  .ntypes { grid-template-columns: 1fr 1fr; }
+  .netsbar { grid-template-columns: minmax(120px, 1fr) repeat(3, minmax(52px, 0.6fr)); }
+  .netsbar > .nb-stat:nth-of-type(4), .netsbar > .nb-stat:nth-of-type(6) { display: none; }
+  .nets-card { display: none; }
+}

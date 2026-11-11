@@ -5,6 +5,7 @@ import { GeoBuilder, lambert } from './GeoBuilder.js';
 import { outfieldTexture, pitchTexture, adBoardTexture, ScoreboardTexture, glowTexture } from './Textures.js';
 import { buildScenery } from './Environment.js';
 import { PITCH, BOUNDARY_RADIUS } from '../game/BallPhysics.js';
+import { NetArea } from './NetArea.js';
 
 export const STADIUMS = {
   harbour: { label: 'Harbour Oval', grass: ['#4c9a3b', '#58a845'], concrete: '#cfd5df', seat: ['#2f6fd6', '#e7edf6', '#f2c94c'], roof: '#f4f6fa', rope: '#ffffff', scenery: 'city', upper: true },
@@ -383,6 +384,7 @@ export class StadiumScene {
     bodies.frustumCulled = false; heads.frustumCulled = false;
     this.root.add(bodies, heads);
     this.crowd = { bodies, heads };
+    if (this.netsOn) bodies.visible = heads.visible = false;
   }
 
   // ------------------------------------------------------------------ floodlights / features
@@ -473,6 +475,14 @@ export class StadiumScene {
   updateScoreboard(info) { this.scoreboard.draw(info); }
 
   setCrowdTeamColor(color) { this.teamCrowdColor = color; }
+
+  /** Net practice: show the green net lane around the pitch and empty the stands (no crowd at practice). */
+  setNets(on) {
+    this.netsOn = !!on;
+    if (on && !this.nets) this.nets = new NetArea(this.renderer);
+    if (this.nets) { this.nets.attach(this.frame); this.nets.setVisible(on); }
+    if (this.crowd) this.crowd.bodies.visible = this.crowd.heads.visible = !on;
+  }
 
   /** Delivery frame orientation: 0 = bowling from the pavilion (-z) end, 1 = from the scoreboard (+z) end. */
   setEnds(bowlingEnd) {

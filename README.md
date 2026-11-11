@@ -25,7 +25,7 @@ The cricket rules, squad validation, ball physics, AI, input handling and camera
 npm test          # node --test tests/*.test.js
 ```
 
-There are 111 tests. They cover every squad-composition rule, scoring and extras, strike rotation, over changes, wickets and the next batter, free hits, bowler over limits, target chasing and results. They also run full AI-vs-AI matches in all three formats (checking that runs, balls and wickets always add up), save/resume mid-match, skipping ahead (simulating an innings, stopping exactly at the final overs of a chase), moving across the crease (keys, reach, pads and stumps, wide calls), the bowling physics (all 10 speeds × 8 lengths, pitching inside the chosen range, bounce direction, travel and reaction times, identical results at 30/60/120 FPS, nothing passing through the bat, body or stumps), timing windows and shot selection, swing and spin direction, gamepad edge detection, dead zones and connect/disconnect, the batting and bowling camera positions (including the TV framing), the field chart's orientation and counts, and the batting animations (footwork, contact positions, the bat keeping its speed through the ball, high finishes).
+There are 119 tests. They cover every squad-composition rule, scoring and extras, strike rotation, over changes, wickets and the next batter, free hits, bowler over limits, target chasing and results. They also run full AI-vs-AI matches in all three formats (checking that runs, balls and wickets always add up), save/resume mid-match, skipping ahead (simulating an innings, stopping exactly at the final overs of a chase), moving across the crease (keys, reach, pads and stumps, wide calls), net practice (fixed and random speeds, the chosen length, line and delivery always bowled, the netting stopping the ball, and what each shot would be worth on the field), the bowling physics (all 10 speeds × 8 lengths, pitching inside the chosen range, bounce direction, travel and reaction times, identical results at 30/60/120 FPS, nothing passing through the bat, body or stumps), timing windows and shot selection, swing and spin direction, gamepad edge detection, dead zones and connect/disconnect, the batting and bowling camera positions (including the TV framing), the field chart's orientation and counts, and the batting animations (footwork, contact positions, the bat keeping its speed through the ball, high finishes).
 
 ### Publishing on GitHub Pages
 
@@ -44,6 +44,8 @@ All paths in the game are relative, so it works from a repository subfolder (`/c
 ## How to play
 
 **Menus:** start with **Create My Team** (name, colours, emblem). Then use **Manage Players** to edit the 15 players' names, numbers, roles, styles and ratings, and **Team Strategy** to pick the XI and batting order. **Play Match** opens Match Settings, then the toss.
+
+**Net Practice** (main menu) is batting practice with no match attached: you set up a bowler, then face ball after ball in a green net lane for as long as you like (see [Net practice](#net-practice) below).
 
 ### Squad rules (enforced live)
 
@@ -78,6 +80,27 @@ All-rounders must have a bowling type and don't count as full-time bowlers. The 
 - Wides follow the law: a ball you moved across to reach isn't a wide, and backing away can't turn a ball into one.
 
 Push the stick **up** for front-foot shots and **down** for back-foot shots, **right** for the off side and **left** for the leg side. A green arrow shows your aim. Press the shot button just before the ball arrives. The timing bar reports Early / Good / Perfect / Late, and a white ring marks where the ball pitched.
+
+### Net practice
+
+Pick **Net Practice** on the main menu, set up the bowler, then press **Start Nets**:
+
+| Setting | Choices |
+|---|---|
+| Bowler type | Fast (120–160 km/h), Fast-medium (110–145), Medium pace (95–135), Off-spin (65–100), Leg-spin (65–100) |
+| Speed | **Fixed**: every ball at exactly the speed you set (e.g. 145 km/h). **Random**: each ball at a different whole-number speed in the range you set (fast bowlers default to 120–150 km/h) |
+| Delivery | Mixed, or one variation every ball: seam up, outswinger, inswinger; off break, arm ball, leg break, googly, flighted, flatter |
+| Length | Mixed, or Yorker, Full Toss, Full, Good, Back of a Length, Short of a Length, Short Ball, Bouncer |
+| Line | Mixed, off stump, outside off (corridor), wide outside off, middle stump, leg stump |
+| Accuracy, swing / turn | Wayward / Steady / Pinpoint; a little / normal / big |
+| Difficulty | Easy, Normal, Hard (as in a match), or **Real time** (no slow motion) |
+| Batter | Any player in your squad |
+
+"Mixed" uses the computer bowler's own plans, so you get a realistic spread of lengths and variations. The bowler runs in on his own, and the controls are the same as batting in a match (moving across the crease included); there is no running. The stands are empty and the pitch is enclosed in green netting, with side nets, a back net and a roof over the batting half. Hits stop in the netting, and straight drives run out of the open end towards the bowler.
+
+Nothing is scored, but every ball is graded. You see your timing and shot, and what the shot would have been worth against a normal field: four, six, runs, caught, or a diving chance. Bowled, LBW and played-on are given as they happen. A strip along the bottom keeps the session going: balls, runs, fours and sixes, dismissals, the share of shots you middled, and the last eight balls. **Pause → Change bowler** brings on a different bowler, speed or batter straight away; **Leave the nets** shows a session summary. **R** replays the last ball.
+
+The "would have been" result plays the shot out on an open field with the match's own ball flight and fielding rules. The running estimate was fitted to full AI matches: over about 3,000 shots its total runs come within 2% of what the real fielders and runners gave.
 
 ### Bowling (camera behind your bowler)
 
@@ -130,15 +153,17 @@ src/game/
   DeliverySim.js                one ball from run-up to dead ball: pads/LBW, fielding, throws, running
   FieldPlacements.js, Difficulty.js, MatchSim.js (engine <-> sim glue), SkipSim.js (auto-sim / skip ahead)
   MatchController.js            the match you play: input profiles, cameras, HUD, replays, overlays
+  NetsConfig.js, NetsSim.js, NetsController.js   net practice: bowler set-up, the net delivery, the session
+  BattingInput.js               the human batter's controls (shared by matches and the nets)
   GameManager.js, DemoController.js (menu background match)
 src/ai/                         BattingAI, BowlingAI (deliveries, bowler choice, fields), FieldingAI
 src/controls/                   Bindings, KeyboardControls, GamepadControls, InputManager
-src/scene/                      StadiumScene, Environment, PlayerModel, Animations, MatchView,
+src/scene/                      StadiumScene, NetArea (green practice nets), Environment, PlayerModel, Animations, MatchView,
                                 CameraManager + CameraPoses, Textures, GeoBuilder, Renderer,
                                 PhysicsDebug (developer overlay),
                                 CharacterGeometry (sculpted, skinned player meshes and kit),
                                 CharacterShowcase (?debug=characters line-up)
-src/ui/                         Screens (menus), HUD + overlays, FieldMap (field chart), Emblem, UI helpers
+src/ui/                         Screens (menus), HUD + overlays, FieldMap (field chart), NetsForm (nets bowler set-up), Emblem, UI helpers
 src/audio/Sound.js              procedural Web Audio effects (no audio files)
 assets/preview.jpg              link-preview image (not loaded by the game)
 tests/                          node:test suites

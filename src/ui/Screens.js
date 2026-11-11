@@ -14,6 +14,8 @@ import { DIFFICULTY } from '../game/Difficulty.js';
 import { DEFAULT_BINDINGS, ACTION_LABELS, PROFILE_LABELS, PAD_LABELS, keyLabel, cloneBindings } from '../controls/Bindings.js';
 import { RNG } from '../utils/Random.js';
 import { BATTING_VIEWS, BOWLING_VIEWS, normalizeBattingView, normalizeBowlingView } from '../scene/CameraPoses.js';
+import { normalizeNetsConfig } from '../game/NetsConfig.js';
+import { netsFormHTML, readNetsForm, netsFormClick, syncNetsFormLabels, refocusNetsForm } from './NetsForm.js';
 
 const ROLE_CLASS = { batsman: 'r-bat', wicketkeeper: 'r-wk', allrounder: 'r-ar', bowler: 'r-bowl' };
 const COLOR_SWATCHES = ['#14806a', '#1f6feb', '#b3261e', '#5b3fa6', '#e07a1f', '#0f8b8d', '#222831', '#ff5a76', '#3d5a40', '#f4d35e', '#ffffff', '#00b4d8'];
@@ -40,6 +42,7 @@ export const MainMenu = {
       <nav class="menu-list">
         ${saved ? `<button class="btn primary" data-go="resume">▶ Resume Match <small>${esc(saved)}</small></button>` : ''}
         <button class="btn ${saved ? '' : 'primary'}" data-go="play">Play Match</button>
+        <button class="btn" data-go="nets">Net Practice <small>Batting practice against the bowler you choose</small></button>
         <button class="btn" data-go="create">Create My Team</button>
         <button class="btn" data-go="players">Manage Players</button>
         <button class="btn" data-go="strategy">Team Strategy</button>
@@ -405,6 +408,44 @@ export const Toss = {
   },
 };
 
+// ---------------------------------------------------------------- net practice
+export const NetsSetup = {
+  title: 'Net Practice',
+  back: 'main',
+  state: { cfg: null },
+  html(app) {
+    const st = this.state;
+    st.cfg = normalizeNetsConfig(st.cfg || app.netsConfig(), app.team);
+    return `<div class="panel wide nets-setup">
+      <h1>Net Practice <small>Batting practice: set up your bowler, then face as many balls as you like</small></h1>
+      ${netsFormHTML(st.cfg, app.team)}
+      <p class="muted nf-help">Nothing counts towards a match. Each ball shows your timing and what the shot would have been worth against a normal field. Pause at any time to change the bowler.</p>
+      <div class="actions">
+        <button class="btn primary" data-act="start">Start Nets →</button>
+        <button class="btn ghost" data-act="back">Back</button>
+      </div>
+    </div>`;
+  },
+  bind(root, app) {
+    const st = this.state;
+    root.addEventListener('input', e => { if (e.target.matches('input[type=range][data-nf]')) syncNetsFormLabels(root); });
+    root.addEventListener('change', () => { st.cfg = readNetsForm(root, st.cfg, app.team); app.saveNetsConfig(st.cfg); });
+    root.addEventListener('click', e => {
+      const next = netsFormClick(e.target, st.cfg, app.team);
+      if (next) {
+        st.cfg = next;
+        app.saveNetsConfig(next);
+        app.render();
+        refocusNetsForm(app.uiRoot, e.target);
+        return;
+      }
+      const a = e.target.closest('[data-act]')?.dataset.act;
+      if (a === 'start') { st.cfg = readNetsForm(root, st.cfg, app.team); app.startNets(st.cfg); }
+      else if (a === 'back') app.go('main');
+    });
+  },
+};
+
 // ---------------------------------------------------------------- controls & tutorial
 const TUTORIAL = {
   batting: `<ol>
@@ -415,6 +456,7 @@ const TUTORIAL = {
     <li><b>Timing:</b> press the shot button just before the ball reaches you. The timing bar shows Early / Good / Perfect / Late. Perfect timing doesn't guarantee a six — the shot, the line and length, your player's skill and the field all matter.</li>
     <li>Hold <b>power</b> for extra distance (riskier), hold <b>precision</b> for a wider timing window and fewer edges.</li>
     <li><b>Run:</b> press Call Run once per run (press again during a run to come back for another), Send Back to turn around.</li>
+    <li><b>Practise in the nets:</b> Net Practice on the main menu lets you face any bowler (type, fixed or random speed, length, line, variation) for as long as you like, with your timing and the value of every shot shown.</li>
   </ol>`,
   bowling: `<ol>
     <li>The camera is behind your bowler. Pick a <b>speed</b> (Faster / Slower, from 70 to 150 km/h — what your bowler can reach depends on their type, pace rating and tiredness) and a <b>length</b>: Yorker, Full Toss, Full, Good, Back of a Length, Short of a Length, Short Ball or Bouncer.</li>
@@ -483,5 +525,5 @@ export const Controls = {
   },
 };
 
-export const SCREENS = { main: MainMenu, create: CreateTeam, players: ManagePlayers, strategy: TeamStrategy, setup: MatchSetup, toss: Toss, controls: Controls };
+export const SCREENS = { main: MainMenu, create: CreateTeam, players: ManagePlayers, strategy: TeamStrategy, setup: MatchSetup, toss: Toss, nets: NetsSetup, controls: Controls };
 export { compositionPanel };

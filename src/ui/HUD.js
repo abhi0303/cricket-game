@@ -7,22 +7,46 @@ import { FIELD_PRESETS } from '../game/FieldPlacements.js';
 import { finalOversFor } from '../game/SkipSim.js';
 import { FieldMap, fieldCounts, chartColor } from './FieldMap.js';
 
-export class HUD {
-  constructor(root) {
-    this.root = root;
-    this.cache = new Map();
-    // Layout: pause + end caption top-left; field chart with the controls under it top-right;
-    // a broadcast-style score strip along the bottom.
-    root.innerHTML = `
-      <div class="hud-tl"><button class="hud-btn" data-hud="pause" aria-label="Pause">❚❚</button><div class="hud-cap"><span class="hud-end"></span><span class="hud-last"></span></div></div>
-      <div class="hud-right">
-        <div class="fieldmap"><canvas aria-label="Field placings"></canvas><div class="fm-caption"><span class="fm-name"></span><span class="fm-count"></span></div></div>
-        <div class="hints"></div>
-      </div>
+const HUD_COMMON = `
       <div class="banner hidden"><div class="b-main"></div><div class="b-sub"></div></div>
       <div class="timing hidden"><div class="t-bar"><i class="z late"></i><i class="z good"></i><i class="z perfect"></i><i class="z good2"></i><i class="z early"></i><b class="t-mark"></b></div><div class="t-label"></div></div>
       <div class="meter hidden"><div class="m-type"></div><div class="m-bar"><i class="m-good"></i><i class="m-perfect"></i><i class="m-over"></i><b class="m-cursor"></b></div><div class="m-power"><i></i></div><div class="m-label"></div></div>
-      <div class="prompt hidden"></div>
+      <div class="prompt hidden"></div>`;
+
+const HUD_TOP_LEFT = `<div class="hud-tl"><button class="hud-btn" data-hud="pause" aria-label="Pause">❚❚</button><div class="hud-cap"><span class="hud-end"></span><span class="hud-last"></span></div></div>`;
+
+export class HUD {
+  /** nets: the net-practice layout (bowler card and session stats instead of field chart and scorecard). */
+  constructor(root, { nets = false } = {}) {
+    this.root = root;
+    this.cache = new Map();
+    this.nets = nets;
+    if (nets) {
+      root.innerHTML = `${HUD_TOP_LEFT}
+      <div class="hud-right">
+        <div class="nets-card"></div>
+        <div class="hints"></div>
+      </div>${HUD_COMMON}
+      <div class="netsbar">
+        <div class="nb-head"><b>NET PRACTICE</b><span class="nb-bowler"></span></div>
+        <div class="nb-stat"><span>Balls</span><b class="nb-balls">0</b></div>
+        <div class="nb-stat"><span>Runs</span><b class="nb-runs">0</b></div>
+        <div class="nb-stat"><span>4s · 6s</span><b class="nb-bnd">0 · 0</b></div>
+        <div class="nb-stat"><span>Out</span><b class="nb-outs">0</b></div>
+        <div class="nb-stat"><span>Middled</span><b class="nb-mid">–</b></div>
+        <div class="nb-hist"><span class="tv-lab">LAST BALLS</span><span class="nb-chips"></span></div>
+      </div>`;
+      this.q = sel => root.querySelector(sel);
+      this.map = null;
+      return;
+    }
+    // Layout: pause + end caption top-left; field chart with the controls under it top-right;
+    // a broadcast-style score strip along the bottom.
+    root.innerHTML = `${HUD_TOP_LEFT}
+      <div class="hud-right">
+        <div class="fieldmap"><canvas aria-label="Field placings"></canvas><div class="fm-caption"><span class="fm-name"></span><span class="fm-count"></span></div></div>
+        <div class="hints"></div>
+      </div>${HUD_COMMON}
       <div class="auto-badge hidden"><b>AUTO-PLAY</b> <span>The AI is playing for you · pause to take control</span></div>
       <div class="tvbar">
         <div class="tv-emb tv-bat"><img alt=""></div>
@@ -97,7 +121,7 @@ export class HUD {
 
   /** Field chart: o = { sim, up, preset } (see FieldMap). */
   fieldMap(sim, up, presetLabel) {
-    if (!sim) return;
+    if (!sim || !this.map) return;
     const ball = sim.phase === 'inplay' || sim.phase === 'dead' ? sim.ball?.p : null;
     this.map.draw({
       fielders: sim.fielders, keeper: sim.keeper, bowler: sim.bowler, batters: sim.runners,
@@ -110,6 +134,23 @@ export class HUD {
   }
 
   setEnd(text) { this.set('.hud-end', esc(text)); }
+
+  /**
+   * Net practice: the session strip (stats and the last few balls), the bowler card and the last-ball caption.
+   * stats = NetsConfig stats, card = [[label, value]…], last = sim result of the last ball (or null).
+   */
+  updateNets(stats, bowlerLabel, card, last = null) {
+    const chipClass = c => (c === '6' ? 's' : c === '4' ? 'f' : c === 'W' || c === 'C' ? 'w' : c === 'wd' ? 'x' : c === '•' ? 'd' : 'r');
+    this.set('.nb-bowler', esc(bowlerLabel));
+    this.set('.nb-balls', String(stats.balls));
+    this.set('.nb-runs', String(stats.runs));
+    this.set('.nb-bnd', `${stats.fours} · ${stats.sixes}`);
+    this.set('.nb-outs', String(stats.outs));
+    this.set('.nb-mid', stats.shots ? `${Math.round(stats.middled / stats.shots * 100)}%` : '–');
+    this.set('.nb-chips', stats.history.map(c => `<span class="tv-ball ${chipClass(c)}">${esc(c)}</span>`).join(''));
+    this.set('.nets-card', `<div class="nc-title">Bowler</div>${card.map(([k, v]) => `<div class="nc-row"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}`);
+    this.set('.hud-last', last?.speedKph ? `Last ball: ${esc(last.deliveryType)} · <b>${last.speedKph} km/h</b> · ${esc(last.lengthClass)}` : '');
+  }
 
   banner(main, sub = '', kind = '') {
     this.set('.b-main', main);
@@ -183,6 +224,40 @@ export function pauseHTML(engine, { auto = false, userBowling = false } = {}) {
     </div>`;
 }
 
+/** Net practice pause menu. */
+export function netsPauseHTML(stats, bowlerLabel) {
+  return `<h2>Paused</h2><p class="muted">Net practice · ${esc(bowlerLabel)} · ${stats.balls} ball${stats.balls === 1 ? '' : 's'} faced</p>
+    <div class="ov-actions col">
+      <button class="btn primary" data-ov="resume">Resume</button>
+      ${optionButtons([
+        ['bowler', 'Change bowler', 'Type, speed, length, line or batter'],
+        ['reset', 'Reset session stats', 'Start counting again from zero'],
+      ])}
+      <button class="btn" data-ov="controls">Controls</button>
+      <button class="btn" data-ov="settings">Settings</button>
+      <button class="btn ghost" data-ov="quit">Leave the nets</button>
+    </div>`;
+}
+
+/** Summary shown when leaving the nets. */
+export function netsSummaryHTML(stats, bowlerLabel, batter) {
+  const sr = stats.balls ? (stats.runs / stats.balls * 100).toFixed(0) : '–';
+  const pct = n => (stats.shots ? `${Math.round(n / stats.shots * 100)}%` : '–');
+  const tile = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
+  return `<h2>Session summary</h2>
+    <p class="muted">${esc(batter?.name || 'Batter')} against ${esc(bowlerLabel)}</p>
+    <div class="awards nets-summary">
+      ${tile('Balls faced', stats.balls)}${tile('Runs (match value)', stats.runs)}${tile('Strike rate', sr)}
+      ${tile('Fours · Sixes', `${stats.fours} · ${stats.sixes}`)}${tile('Dismissals', stats.outs)}${tile('Dot balls', stats.dots)}
+      ${tile('Shots middled', pct(stats.middled))}${tile('Edges', stats.edges)}${tile('Played and missed', stats.beaten)}
+    </div>
+    <div class="ov-actions">${optionButtons([
+      ['back', 'Keep practising', '', true],
+      ['setup', 'New bowler set-up', 'Back to the Net Practice screen'],
+      ['menu', 'Main menu', ''],
+    ])}</div>`;
+}
+
 /** Skip-bowling choices for the current innings (first innings: finish it; a chase: the finish or the result). */
 export function skipHTML(engine) {
   const s = engine.situation(), bat = engine.battingTeam;
@@ -218,19 +293,19 @@ export function updateSimulating(root, engine) {
   q('.sim-bar i').style.width = Math.min(100, inn.legalBalls / (inn.maxOvers * 6) * 100) + '%';
 }
 
-/** In-match settings: camera angles and a few comfort options, applied immediately. */
-export function settingsHTML(s, battingViews, bowlingViews) {
+/** In-match settings: camera angles and a few comfort options, applied immediately. nets: batting-only options. */
+export function settingsHTML(s, battingViews, bowlingViews, { nets = false } = {}) {
   const sel = (id, opts, cur) => `<select id="${id}" data-setting="${id}">${opts.map(([k, l]) => `<option value="${k}" ${String(k) === String(cur) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
   const onOff = [['true', 'On'], ['false', 'Off']];
   return `<h2>Settings</h2>
     <div class="settings-grid">
       <label>Batting camera ${sel('battingCamera', battingViews.map(v => [v.id, v.label]), s.battingCamera)}</label>
-      <label>Bowling camera ${sel('bowlingCamera', bowlingViews.map(v => [v.id, v.label]), s.bowlingCamera)}</label>
+      ${nets ? '' : `<label>Bowling camera ${sel('bowlingCamera', bowlingViews.map(v => [v.id, v.label]), s.bowlingCamera)}</label>`}
       <label>Sound ${sel('sound', onOff, String(s.sound))}</label>
       <label class="slider">Volume <input type="range" id="volume" data-setting="volume" min="0" max="1" step="0.05" value="${s.volume}"></label>
-      <label>Replays after big moments ${sel('autoReplay', onOff, String(s.autoReplay))}</label>
+      ${nets ? '' : `<label>Replays after big moments ${sel('autoReplay', onOff, String(s.autoReplay))}</label>
       <label>Bowling aim marker ${sel('aimMarker', [['true', 'Show'], ['false', 'Hide']], String(s.aimMarker))}</label>
-      <label>Running between wickets ${sel('assistRunning', [['false', 'Manual'], ['true', 'Assisted']], String(s.assistRunning))}</label>
+      <label>Running between wickets ${sel('assistRunning', [['false', 'Manual'], ['true', 'Assisted']], String(s.assistRunning))}</label>`}
     </div>
     <p class="muted">Tip: press the camera button (V / View / Share) during play to cycle the cameras.</p>
     <div class="ov-actions"><button class="btn primary" data-ov="back">Back</button></div>`;
