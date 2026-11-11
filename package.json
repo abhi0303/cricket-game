@@ -1,0 +1,16 @@
+{
+  "name": "low-poly-cricket",
+  "version": "1.0.0",
+  "description": "A playable low-poly 3D cricket game in plain HTML/CSS/JS + Three.js",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "serve": "npx --yes http-server -p 8000 -c-1 .",
+    "test": "node --test tests/",
+    "physics-report": "node scripts/physicsReport.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
