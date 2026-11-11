@@ -108,26 +108,48 @@ test('sprinting gets both batters through a run a little quicker', () => {
   assert.equal(ai.sprint, false);
 });
 
-test('a dive near the crease gets the bat in sooner than running; too early and you land short', () => {
+test('a dive near the crease gets the bat in sooner than running; called early, the batter dives when he gets there', () => {
   // striker running to the bowler's end
-  const toSafety = diveAt => {
+  const toSafety = callAt => {
     const sim = runningSim(7);
     sim.applyRunCommand('run');
-    let dived = 0;
+    let called = false, firstDiveAt = null;
     const t = runUntil(sim, s => isSafe(striker(s), 'nonStriker'), {
-      each: s => { const r = striker(s); if (diveAt && !dived && r.target && distToGround(r, 'nonStriker') <= diveAt) dived = s.inputDive(); },
+      each: s => {
+        const r = striker(s);
+        if (callAt && !called && r.target && distToGround(r, 'nonStriker') <= callAt) { called = true; s.inputDive(); }
+        if (r.dive && firstDiveAt == null) firstDiveAt = distToGround(r, 'nonStriker');
+      },
     });
-    return { t, dived, sim };
+    return { t, firstDiveAt, sim };
   };
-  const run = toSafety(0), dive = toSafety(2.4), early = toSafety(4.4);
-  assert.equal(dive.dived, 2, 'both batters were in range and dived');
+  const run = toSafety(0), dive = toSafety(2.3), early = toSafety(7);
   assert.ok(dive.t < run.t - 0.05, `diving: bat in after ${dive.t.toFixed(2)} s, running ${run.t.toFixed(2)} s`);
-  assert.ok(early.t > run.t + 0.5, `diving from 4.4 m lands short (${early.t.toFixed(2)} s)`);
-  // out of range: no dive at all
-  const sim = runningSim(7);
+  assert.ok(early.firstDiveAt != null && early.firstDiveAt <= DIVE.range + 0.05, `called 7 m out, dived ${early.firstDiveAt?.toFixed(2)} m from the crease`);
+  assert.ok(early.t < run.t - 0.05, 'and still gets home sooner than running it in');
+  assert.ok(DIVE.range <= 2.5, 'never a dive from mid-pitch');
+});
+
+test('a dive calls off the next run: the batters stay in until the player calls again', () => {
+  const sim = runningSim(8);
   sim.applyRunCommand('run');
-  runUntil(sim, s => distToGround(striker(s), 'nonStriker') < 8);
-  assert.equal(sim.inputDive(), 0, 'too far from the crease to dive');
+  sim.applyRunCommand('run');                       // a second run already called...
+  assert.equal(sim.queuedRun, true);
+  runUntil(sim, s => distToGround(striker(s), 'nonStriker') < 5);
+  sim.inputDive();                                  // ...then a dive for the crease
+  assert.equal(sim.queuedRun, false, 'the dive cancels it');
+  runUntil(sim, s => s.runsCompleted >= 1 && s.runState === 'idle', { limit: 6 });
+  runUntil(sim, () => false, { limit: 1.5 });       // time passes: nobody sets off again
+  assert.equal(sim.runsCompleted, 1);
+  assert.equal(sim.runState, 'idle');
+  // the computer calling the runs (assisted running) doesn't set off either...
+  sim.control.running = 'ai';
+  sim.applyRunCommand('run');
+  assert.equal(sim.runState, 'idle', 'no automatic run after a dive');
+  // ...until the player calls it
+  sim.inputRun('run');
+  assert.equal(sim.runState, 'running', 'X / Space starts the next run');
+  assert.equal(sim.holdRuns, false);
 });
 
 test('a batter who dives home completes the run and is safe while getting up', () => {
@@ -141,8 +163,8 @@ test('a batter who dives home completes the run and is safe while getting up', (
   assert.ok(isSafe(r, 'nonStriker'), 'grounded by the dive');
   runUntil(sim, s => !striker(s).dive, { limit: 2 });
   assert.ok(isSafe({ z: r.z, end: r.end }, 'nonStriker'), 'and back on their feet inside the crease');
-  // the next run starts afresh from there
-  sim.applyRunCommand('run');
+  // the next run starts afresh from there, when the player calls it
+  sim.inputRun('run');
   assert.equal(r.madeGround, null);
   assert.ok(DIVE.total > 1);
 });

@@ -205,6 +205,7 @@ export class NetsController {
   updateHUD() {
     const hud = this.hud, input = this.input, sim = this.sim;
     if (this.timingShownAt >= 0 && sim.t - this.timingShownAt > 2.2) { hud.timing(null); this.timingShownAt = -1; }
+    this.app.hudRoot.classList.toggle('no-hints', this.settings.hints === 'off');
     if (this.state === 'replay') hud.hints(input, 'between', [['continue', 'Skip replay']]);
     else if (this.state === 'between') hud.hints(input, 'between', [['continue', 'Next ball'], ['replay', 'Replay'], ['pause', 'Change bowler']]);
     else hud.hints(input, 'batting', [...SHOT_HINTS, ['pause', 'Change bowler']]);

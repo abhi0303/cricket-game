@@ -638,6 +638,7 @@ export class MatchController {
     if (!sim) return;
     if (this.timingShownAt >= 0 && sim.t - this.timingShownAt > 2.2) { hud.timing(null); this.timingShownAt = -1; }
     hud.autoBadge(this.auto && this.state !== 'replay' && this.state !== 'review');
+    this.app.hudRoot.classList.toggle('no-hints', this.settings.hints === 'off');
     const inn = this.engine.innings;
     if (inn) {
       const dots = n => '●'.repeat(n) + '○'.repeat(Math.max(0, 3 - n));
@@ -674,9 +675,9 @@ export class MatchController {
       hud.meter(null);
       if (sim.phase === 'inplay') {
         const rs = sim.runState;
-        hud.hints(input, 'batting', [['run', rs === 'running' ? 'Another run' : 'Run'], ['cancelRun', 'Send back'], ['sprint', 'Sprint (hold)'], ['dive', 'Dive for the crease']]);
+        hud.hints(input, 'batting', [['run', rs === 'running' ? 'Another run' : 'Run'], ['cancelRun', 'Send back'], ['sprint', 'Sprint'], ['dive', 'Dive']], 'Running');
         const running = rs === 'running' || rs === 'returning';
-        if (sim.control.running === 'user' && sim.ball.state !== 'held') hud.prompt(`${rs === 'running' ? `Running… ${sim.runsCompleted} done` : rs === 'returning' ? 'Get back!' : sim.runsCompleted ? `${sim.runsCompleted} run${sim.runsCompleted > 1 ? 's' : ''} — go again?` : 'Run?'} ${this.glyphs(running ? [['sprint', 'Sprint'], ['dive', 'Dive'], ['cancelRun', 'Back']] : [['run', 'Run'], ['cancelRun', 'Back']], 'batting')}`);
+        if ((sim.control.running === 'user' || sim.holdRuns) && sim.ball.state !== 'held') hud.prompt(`${rs === 'running' ? `Running… ${sim.runsCompleted} done` : rs === 'returning' ? 'Get back!' : sim.runsCompleted ? `${sim.runsCompleted} run${sim.runsCompleted > 1 ? 's' : ''} — go again?` : 'Run?'} ${this.glyphs(running ? [['sprint', 'Sprint'], ['dive', 'Dive'], ['cancelRun', 'Back']] : [['run', 'Run'], ['cancelRun', 'Back']], 'batting')}`);
         else hud.prompt(null);
       } else {
         hud.prompt(null);

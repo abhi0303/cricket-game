@@ -32,4 +32,5 @@ export const DEFAULT_SETTINGS = {
   assistRunning: false,
   aimMarker: true,
   autoReplay: true,
+  hints: 'on',            // the button card under the field chart
 };

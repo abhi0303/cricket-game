@@ -32,7 +32,10 @@ export function glyph(input, action, profile) {
 
 /** items: [action | [action, action…], text] — several actions share one hint (e.g. ← → Move). */
 export function hintBar(input, profile, items) {
-  return items.map(([action, text]) => `<span class="hint">${[].concat(action).map(a => glyph(input, a, profile)).join('')} ${esc(text)}</span>`).join('');
+  return items.map(([action, text]) => {
+    const acts = [].concat(action);
+    return `<span class="hint${acts.length > 1 ? ' wide' : ''}">${acts.map(a => glyph(input, a, profile)).join('')} ${esc(text)}</span>`;
+  }).join('');
 }
 
 // ---------------------------------------------------------------- spatial navigation

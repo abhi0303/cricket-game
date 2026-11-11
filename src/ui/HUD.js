@@ -15,6 +15,7 @@ const HUD_COMMON = `
       <div class="prompt hidden"></div>
       <div class="replay-tag hidden"></div>`;
 
+const HINT_TITLE = { batting: 'Batting', bowling: 'Bowling', fielding: 'Fielding', between: 'Between balls' };
 const HUD_TOP_LEFT = `<div class="hud-tl"><button class="hud-btn" data-hud="pause" aria-label="Pause">❚❚</button><div class="hud-cap"><span class="hud-end"></span><span class="hud-last"></span><span class="hud-drs"></span></div></div>`;
 
 export class HUD {
@@ -216,7 +217,10 @@ export class HUD {
 
   replayTag(text) { this.show('.replay-tag', !!text); if (text) this.set('.replay-tag', `<i></i>${esc(text)}`); }
   autoBadge(on) { this.show('.auto-badge', on); }
-  hints(input, profile, items) { this.set('.hints', hintBar(input, profile, items)); }
+  /** Compact two-column button card under the field chart; `title` names the situation (e.g. BATTING). */
+  hints(input, profile, items, title = HINT_TITLE[profile] || '') {
+    this.set('.hints', items.length ? `${title ? `<div class="hints-head">${esc(title)}</div>` : ''}<div class="hints-grid">${hintBar(input, profile, items)}</div>` : '');
+  }
 }
 
 // ---------------------------------------------------------------- overlays
@@ -236,21 +240,51 @@ export function pauseHTML(engine, { auto = false, userBowling = false } = {}) {
   const s = engine.situation();
   const test = engine.isTest;
   const canDeclare = test && !userBowling && engine.inningsIndex < 3 && engine.innings.legalBalls > 0;
-  return `<h2>Paused</h2><p class="muted">${esc(engine.battingTeam.name)} ${s.runs}/${s.wickets} (${s.overs} ov)${test ? ` · Day ${s.day} of ${s.days}` : ''}</p>
-    <div class="ov-actions col">
-      <button class="btn primary" data-ov="resume">Resume</button>
-      ${optionButtons([
-        auto ? ['autoplay', 'Take back control', `Stop the AI ${userBowling ? 'bowling' : 'batting'} for you`]
-          : ['autoplay', 'Auto-play', `The AI ${userBowling ? 'bowls' : 'bats'} for you while you watch`],
-        ...(canDeclare ? [['declare', 'Declare', `Close the innings at ${s.runs}/${s.wickets}${s.lead ? ` (${s.lead > 0 ? 'lead' : 'trail'} by ${Math.abs(s.lead)})` : ''}`]] : []),
-        ...(test ? [['skip', 'Skip ahead', 'Simulate to stumps, the end of this innings, or the result']]
-          : userBowling ? [['skip', 'Skip bowling', s.target != null ? 'Simulate ahead: the final overs or the result' : 'Simulate the rest of this innings']] : []),
-      ])}
-      <button class="btn" data-ov="scorecard">Scorecard</button>
-      <button class="btn" data-ov="controls">Controls</button>
-      <button class="btn" data-ov="settings">Settings</button>
-      <button class="btn ghost" data-ov="quit">Save &amp; quit to menu</button>
+  return `<h2>Paused <small>${esc(engine.state.teams[0].short)} v ${esc(engine.state.teams[1].short)} · ${test ? `Test, day ${s.day} of ${s.days}` : `${engine.config.overs}-over match`}</small></h2>
+    <div class="pause-grid">
+      <div class="ov-actions col menu">
+        <button class="btn primary" data-ov="resume">Resume</button>
+        ${optionButtons([
+          auto ? ['autoplay', 'Take back control', `Stop the AI ${userBowling ? 'bowling' : 'batting'} for you`]
+            : ['autoplay', 'Auto-play', `The AI ${userBowling ? 'bowls' : 'bats'} for you while you watch`],
+          ...(canDeclare ? [['declare', 'Declare', `Close the innings at ${s.runs}/${s.wickets}${s.lead ? ` (${s.lead > 0 ? 'lead' : 'trail'} by ${Math.abs(s.lead)})` : ''}`]] : []),
+          ...(test ? [['skip', 'Skip ahead', 'To stumps, the end of the innings, or the result']]
+            : userBowling ? [['skip', 'Skip bowling', s.target != null ? 'The final overs or the result' : 'Simulate the rest of this innings']] : []),
+        ])}
+        <button class="btn" data-ov="scorecard">Scorecard</button>
+        <button class="btn" data-ov="controls">Controls</button>
+        <button class="btn" data-ov="settings">Settings</button>
+        <button class="btn ghost" data-ov="quit">Save &amp; quit to menu</button>
+      </div>
+      ${matchSummaryHTML(engine)}
     </div>`;
+}
+
+/** At-a-glance match state for the pause menu: score, the chase or lead, the batters in, the bowler, this over. */
+export function matchSummaryHTML(engine) {
+  const inn = engine.innings;
+  if (!inn) return '';
+  const s = engine.situation(), bat = engine.battingTeam, bowl = engine.bowlingTeam;
+  const status = engine.isTest
+    ? (inn.target != null ? `Need ${s.need} to win · ${Math.floor(s.ballsLeft / 6)} overs left in the match` : s.innings === 1 ? `1st innings · run rate ${s.crr.toFixed(2)}` : s.lead > 0 ? `Lead by ${s.lead}` : s.lead < 0 ? `Trail by ${-s.lead}` : 'Scores level')
+    : inn.target != null ? `Need ${s.need} from ${s.ballsLeft} ball${s.ballsLeft === 1 ? '' : 's'} · required ${s.rrr === Infinity ? '—' : s.rrr.toFixed(2)}` : `Run rate ${s.crr.toFixed(2)} · ${s.ballsLeft} balls left`;
+  const batter = id => {
+    if (!id) return '';
+    const p = engine.player(id), b = inn.batters[id];
+    return `<div class="ps-row${id === inn.striker ? ' on' : ''}"><span>${esc(p.name)}${id === inn.striker ? ' <i>*</i>' : ''}</span><b>${b.runs}</b><small>(${b.balls})</small></div>`;
+  };
+  const bw = engine.bowler || (inn.lastOverBowler && engine.player(inn.lastOverBowler));
+  const bs = bw && (inn.bowlers[bw.id] || { balls: 0, maidens: 0, runs: 0, wickets: 0 });
+  const chips = inn.thisOver.map(b => `<span class="tv-ball ${b.wicket ? 'w' : b.boundary === 6 ? 's' : b.boundary === 4 ? 'f' : b.extra ? 'x' : b.runs ? 'r' : 'd'}">${b.label === '0' || b.label === '•' ? '•' : esc(b.label)}</span>`).join('');
+  const last = inn.fallOfWickets[inn.fallOfWickets.length - 1];
+  return `<div class="pause-info" style="--c1:${bat.primary}">
+    <div class="ps-head"><img src="${emblemDataURL(bat, 64)}" alt=""><div><b>${esc(bat.name)}</b><span>${esc(status)}</span></div>
+      <div class="ps-score"><b>${inn.runs}/${inn.wickets}</b><span>${s.overs} ov</span></div></div>
+    <div class="ps-sec"><div class="ps-lab">At the crease</div>${batter(inn.striker)}${batter(inn.nonStriker)}
+      <div class="ps-note">Partnership ${inn.partnership.runs} (${inn.partnership.balls})${last ? ` · last wicket ${esc(engine.player(last.batter)?.name || '')} at ${last.runs}` : ''}</div></div>
+    ${bw ? `<div class="ps-sec"><div class="ps-lab">Bowling · ${esc(bowl.short)}</div><div class="ps-row"><span>${esc(bw.name)}</span><b>${bs.wickets}-${bs.runs}</b><small>(${oversString(bs.balls)})</small></div></div>` : ''}
+    <div class="ps-sec"><div class="ps-lab">This over</div><div class="ps-over">${chips || '<span class="muted">New over</span>'}</div></div>
+  </div>`;
 }
 
 /** Offer the player a review of an LBW decision. */
@@ -359,6 +393,7 @@ export function settingsHTML(s, battingViews, bowlingViews, { nets = false } = {
       <label>Batting camera ${sel('battingCamera', battingViews.map(v => [v.id, v.label]), s.battingCamera)}</label>
       ${nets ? '' : `<label>Bowling camera ${sel('bowlingCamera', bowlingViews.map(v => [v.id, v.label]), s.bowlingCamera)}</label>`}
       <label>Sound ${sel('sound', onOff, String(s.sound))}</label>
+      <label>Button hints ${sel('hints', [['on', 'Show'], ['off', 'Hide']], s.hints === 'off' ? 'off' : 'on')}</label>
       <label class="slider">Volume <input type="range" id="volume" data-setting="volume" min="0" max="1" step="0.05" value="${s.volume}"></label>
       ${nets ? '' : `<label>Replays after big moments ${sel('autoReplay', onOff, String(s.autoReplay))}</label>
       <label>Bowling aim marker ${sel('aimMarker', [['true', 'Show'], ['false', 'Hide']], String(s.aimMarker))}</label>
@@ -396,43 +431,65 @@ export function bowlerSelectHTML(engine, suggested, preset) {
     ])}</div>`;
 }
 
-function battingCard(engine, inn) {
-  const rows = inn.battingOrder.map(id => {
+function howOut(engine, s) {
+  if (!s.out) return s.status === 'batting' ? 'not out' : '';
+  const o = s.out, pn = id => esc(engine.player(id)?.name || '');
+  if (o.type === 'runout') return `run out${o.fielder ? ` (${pn(o.fielder)})` : ''}`;
+  if (o.type === 'caught') return o.fielder === o.bowler ? `c &amp; b ${pn(o.bowler)}` : `c ${pn(o.fielder)} b ${pn(o.bowler)}`;
+  if (o.type === 'stumped') return `st ${pn(o.fielder)} b ${pn(o.bowler)}`;
+  if (o.type === 'lbw') return `lbw b ${pn(o.bowler)}`;
+  if (o.type === 'hitwicket') return `hit wicket b ${pn(o.bowler)}`;
+  return `b ${pn(o.bowler)}`;
+}
+
+/** One innings as a TV-style card: team band with the total, batting, fall of wickets, bowling. */
+function inningsCard(engine, inn, label) {
+  const team = engine.team(inn.battingTeam);
+  const live = engine.innings === inn && engine.phase === 'innings';
+  const played = inn.battingOrder.filter(id => inn.batters[id].status !== 'yet');
+  const top = played.reduce((b, id) => (!b || inn.batters[id].runs > inn.batters[b].runs ? id : b), null);
+  const rows = played.map(id => {
     const p = engine.player(id), s = inn.batters[id];
-    if (s.status === 'yet') return '';
-    const pn = id => esc(engine.player(id)?.name || '');
-    let how = 'not out';
-    if (s.out) {
-      const o = s.out;
-      if (o.type === 'runout') how = `run out${o.fielder ? ` (${pn(o.fielder)})` : ''}`;
-      else if (o.type === 'caught') how = o.fielder === o.bowler ? `c &amp; b ${pn(o.bowler)}` : `c ${pn(o.fielder)} b ${pn(o.bowler)}`;
-      else if (o.type === 'stumped') how = `st ${pn(o.fielder)} b ${pn(o.bowler)}`;
-      else if (o.type === 'lbw') how = `lbw b ${pn(o.bowler)}`;
-      else if (o.type === 'hitwicket') how = `hit wicket b ${pn(o.bowler)}`;
-      else how = `b ${pn(o.bowler)}`;
-    }
-    return `<tr><td>${esc(p.name)}</td><td class="how">${how}</td><td>${s.runs}</td><td>${s.balls}</td><td>${s.fours}</td><td>${s.sixes}</td><td>${s.balls ? (s.runs / s.balls * 100).toFixed(0) : '-'}</td></tr>`;
+    const notOut = !s.out;
+    const cls = [notOut ? 'live' : '', id === top && s.runs > 0 ? 'top' : '', live && id === inn.striker ? 'strike' : ''].filter(Boolean).join(' ');
+    return `<tr class="${cls}"><td class="nm">${esc(p.name)}${notOut ? '<i>*</i>' : ''}</td><td class="how">${howOut(engine, s)}</td>
+      <td class="r">${s.runs}</td><td>${s.balls}</td><td>${s.fours}</td><td>${s.sixes}</td><td>${s.balls ? (s.runs / s.balls * 100).toFixed(1) : '-'}</td></tr>`;
   }).join('');
-  const dnb = inn.battingOrder.filter(id => inn.batters[id].status === 'yet').map(id => esc(engine.player(id).name)).join(', ');
+  const yet = inn.battingOrder.filter(id => inn.batters[id].status === 'yet').map(id => esc(engine.player(id).name));
   const e = inn.extras;
-  return `<table class="card"><thead><tr><th>Batter</th><th></th><th>R</th><th>B</th><th>4s</th><th>6s</th><th>SR</th></tr></thead><tbody>${rows}</tbody>
-    <tfoot><tr><td>Extras</td><td colspan="6">${totalExtras(inn)} (w ${e.wides}, nb ${e.noballs}, b ${e.byes}, lb ${e.legbyes})</td></tr>
-    <tr><td><b>Total</b></td><td colspan="6"><b>${inn.runs}/${inn.wickets}</b> (${oversString(inn.legalBalls)} ov, RR ${runRate(inn.runs, inn.legalBalls).toFixed(2)})</td></tr>
-    ${dnb ? `<tr><td>Did not bat</td><td colspan="6" class="how">${dnb}</td></tr>` : ''}</tfoot></table>`;
+  const fow = inn.fallOfWickets.map(w => `<span><b>${w.wicket}-${w.runs}</b> ${esc(engine.player(w.batter)?.name.split(' ').slice(-1)[0] || '')} <small>${w.overs}</small></span>`).join('');
+  const bowlers = Object.entries(inn.bowlers).sort((a, b) => a[1].order - b[1].order);
+  const best = bowlers.reduce((b, [id, s]) => (!b || s.wickets > b[1].wickets || (s.wickets === b[1].wickets && s.runs < b[1].runs && s.balls) ? [id, s] : b), null);
+  const brows = bowlers.map(([id, s]) => `<tr class="${best && best[0] === id && s.wickets ? 'top' : ''}${live && id === inn.currentBowler ? ' strike' : ''}"><td class="nm">${esc(engine.player(id).name)}</td>
+    <td>${oversString(s.balls)}</td><td>${s.maidens}</td><td>${s.runs}</td><td class="r">${s.wickets}</td><td>${s.balls ? (s.runs / s.balls * 6).toFixed(2) : '-'}</td><td>${s.wides}</td><td>${s.noballs}</td></tr>`).join('');
+  const rr = runRate(inn.runs, inn.legalBalls).toFixed(2);
+  const status = inn.endReason === 'declared' ? 'declared' : inn.endReason === 'allout' ? 'all out' : inn.endReason === 'target' ? 'target reached' : live ? 'batting' : '';
+  return `<div class="sc-head" style="--c1:${team.primary};--c2:${team.secondary}">
+      <img src="${emblemDataURL(team, 64)}" alt="">
+      <div class="sc-team"><b>${esc(team.name)}</b><span>${esc(label)}${status ? ` · ${status}` : ''}</span></div>
+      <div class="sc-total"><b>${inn.runs}${inn.wickets < 10 ? `/${inn.wickets}` : ''}</b><span>${oversString(inn.legalBalls)}${inn.maxOvers ? ` / ${inn.maxOvers}` : ''} ov · RR ${rr}</span></div>
+    </div>
+    <table class="sc-tab sc-bat"><thead><tr><th>Batter</th><th></th><th>R</th><th>B</th><th>4s</th><th>6s</th><th>SR</th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="how">Yet to bat</td></tr>'}</tbody>
+      <tfoot><tr><td>Extras</td><td class="how">w ${e.wides} · nb ${e.noballs} · b ${e.byes} · lb ${e.legbyes}</td><td class="r">${totalExtras(inn)}</td><td colspan="4"></td></tr>
+      <tr class="tot"><td>Total</td><td class="how">${oversString(inn.legalBalls)} overs · run rate ${rr}</td><td class="r">${inn.runs}/${inn.wickets}</td><td colspan="4"></td></tr></tfoot></table>
+    ${yet.length ? `<div class="sc-line"><span class="lab">${live ? 'Yet to bat' : 'Did not bat'}</span>${yet.join(', ')}</div>` : ''}
+    ${fow ? `<div class="sc-line sc-fow"><span class="lab">Fall of wickets</span>${fow}</div>` : ''}
+    <table class="sc-tab sc-bowl"><thead><tr><th>Bowler</th><th>O</th><th>M</th><th>R</th><th>W</th><th>Econ</th><th>Wd</th><th>Nb</th></tr></thead><tbody>${brows}</tbody></table>`;
 }
 
-function bowlingCard(engine, inn) {
-  const rows = Object.entries(inn.bowlers).sort((a, b) => a[1].order - b[1].order).map(([id, s]) =>
-    `<tr><td>${esc(engine.player(id).name)}</td><td>${oversString(s.balls)}</td><td>${s.maidens}</td><td>${s.runs}</td><td>${s.wickets}</td><td>${s.balls ? (s.runs / s.balls * 6).toFixed(2) : '-'}</td><td>${s.wides}/${s.noballs}</td></tr>`).join('');
-  return `<table class="card"><thead><tr><th>Bowler</th><th>O</th><th>M</th><th>R</th><th>W</th><th>Econ</th><th>Wd/Nb</th></tr></thead><tbody>${rows}</tbody></table>`;
-}
-
+let scSeq = 0;
+/** The full scorecard: one tab per innings (the latest open), switched with radio buttons so no script is needed. */
 export function scorecardHTML(engine) {
-  return engine.state.innings.map((inn, i) => {
-    const nth = engine.isTest ? `${ordinal(engine.state.innings.slice(0, i + 1).filter(x => x.battingTeam === inn.battingTeam).length)} innings` : `${ordinal(i + 1)} innings`;
-    const note = inn.endReason === 'declared' ? ' (declared)' : '';
-    return `<div class="sc-inn"><h3>${esc(engine.team(inn.battingTeam).name)} — ${nth}${note}</h3>${battingCard(engine, inn)}${bowlingCard(engine, inn)}</div>`;
-  }).join('');
+  const inns = engine.state.innings;
+  const id = `sc${++scSeq}`;
+  const label = (inn, i) => engine.isTest
+    ? `${['1st', '2nd'][inns.slice(0, i + 1).filter(x => x.battingTeam === inn.battingTeam).length - 1] || ''} innings`
+    : `${['1st', '2nd', '3rd', '4th'][i]} innings`;
+  return `<div class="scard">
+    ${inns.map((inn, i) => `<input type="radio" class="sc-pick" name="${id}" id="${id}-${i}" ${i === inns.length - 1 ? 'checked' : ''}>`).join('')}
+    <div class="sc-tabs">${inns.map((inn, i) => `<label for="${id}-${i}"><b>${esc(engine.team(inn.battingTeam).short)}</b> ${esc(label(inn, i))} <small>${inn.runs}/${inn.wickets}</small></label>`).join('')}</div>
+    <div class="sc-panes">${inns.map((inn, i) => `<section class="sc-pane">${inningsCard(engine, inn, label(inn, i))}</section>`).join('')}</div>
+  </div>`;
 }
 
 /** Short Test score line: "HHK 325 & 210/4d" for each side. */
