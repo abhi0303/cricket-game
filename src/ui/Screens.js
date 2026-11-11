@@ -409,7 +409,8 @@ export const Toss = {
 const TUTORIAL = {
   batting: `<ol>
     <li>The camera sits behind you at the striker's end. Watch the bowler run in from the far end.</li>
-    <li><b>Direction:</b> push the stick (or WASD/arrows) <i>up</i> for front-foot shots, <i>down</i> for back-foot shots, <i>right</i> for the off side and <i>left</i> for the leg side. A green arrow shows your aim.</li>
+    <li><b>Move across the crease:</b> hold <i>←</i> / <i>→</i> (D-pad left/right) before you play to shuffle towards that side of the screen. Across to off reaches wide balls and gets you in line, but your pads cover the stumps (LBW). Backing away to leg gives you room, but exposes the stumps.</li>
+    <li><b>Direction:</b> push the stick (or WASD) <i>up</i> for front-foot shots, <i>down</i> for back-foot shots, <i>right</i> for the off side and <i>left</i> for the leg side. A green arrow shows your aim.</li>
     <li><b>Pick a shot that suits the ball:</b> drive full balls (front foot), cut or pull short balls (back foot), sweep spinners, leave wide ones. A white ring shows where the ball pitched.</li>
     <li><b>Timing:</b> press the shot button just before the ball reaches you. The timing bar shows Early / Good / Perfect / Late. Perfect timing doesn't guarantee a six — the shot, the line and length, your player's skill and the field all matter.</li>
     <li>Hold <b>power</b> for extra distance (riskier), hold <b>precision</b> for a wider timing window and fewer edges.</li>
@@ -442,7 +443,7 @@ export const Controls = {
       <div class="filters">${tabs.map(t => `<button class="chip ${s.tab === t ? 'sel' : ''}" data-tab="${t}">${PROFILE_LABELS[t]}</button>`).join('')}</div>
       <div class="split">
         <table class="binds"><thead><tr><th>Action</th><th>Keyboard</th><th>Controller</th></tr></thead><tbody>
-          ${s.tab === 'batting' || s.tab === 'bowling' ? `<tr><td>${s.tab === 'batting' ? 'Shot direction / footwork' : 'Aim line &amp; length'}</td><td>W A S D / Arrows</td><td>Left stick / D-pad</td></tr>` : ''}
+          ${s.tab === 'batting' || s.tab === 'bowling' ? `<tr><td>${s.tab === 'batting' ? 'Shot direction / footwork' : 'Aim line &amp; length'}</td><td>${s.tab === 'batting' ? 'W A S D (↑ ↓)' : 'W A S D / Arrows'}</td><td>${s.tab === 'batting' ? 'Left stick / D-pad ↑ ↓' : 'Left stick / D-pad'}</td></tr>` : ''}
           ${Object.entries(b).map(([a, v]) => `<tr><td>${esc(ACTION_LABELS[a] || a)}</td>
             <td><button class="bind ${s.listening === a + ':key' ? 'listen' : ''}" data-bind="${a}" data-dev="key">${s.listening === a + ':key' ? 'Press a key…' : esc(v.keys.map(keyLabel).join(' / '))}</button></td>
             <td><button class="bind ${s.listening === a + ':pad' ? 'listen' : ''}" data-bind="${a}" data-dev="pad">${s.listening === a + ':pad' ? 'Press a button…' : esc(v.pad.map(i => PAD_LABELS[style][i]).join(' / '))}</button></td></tr>`).join('')}

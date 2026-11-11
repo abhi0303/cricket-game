@@ -30,8 +30,9 @@ export function glyph(input, action, profile) {
   return `<span class="glyph key">${esc(keyLabel(b.keys[0]))}</span>`;
 }
 
+/** items: [action | [action, action…], text] — several actions share one hint (e.g. ← → Move). */
 export function hintBar(input, profile, items) {
-  return items.map(([action, text]) => `<span class="hint">${glyph(input, action, profile)} ${esc(text)}</span>`).join('');
+  return items.map(([action, text]) => `<span class="hint">${[].concat(action).map(a => glyph(input, a, profile)).join('')} ${esc(text)}</span>`).join('');
 }
 
 // ---------------------------------------------------------------- spatial navigation

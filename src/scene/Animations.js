@@ -41,7 +41,7 @@ export function copyPose(dst, src) {
 }
 
 const lerp3 = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
-const lerpN = (a, b, t) => a.map((v, i) => lerp(v, b[i], t));
+const lerpN = (a, b, t) => Array.from({ length: Math.max(a.length, b.length) }, (_, i) => lerp(a[i] ?? 0, b[i] ?? 0, t));
 
 export function blendPose(out, a, b, t) {
   for (const j of JOINTS) out[j] = lerp3(a[j], b[j], t);

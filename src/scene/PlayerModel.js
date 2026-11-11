@@ -9,6 +9,11 @@ import { jerseyBackTexture, emblemTexture } from './Textures.js';
 import { BONES, PARENT, OFFSET, LIMB, HIP_HEIGHT, buildBody, buildHelmet, buildCap, buildUmpireHat, buildBat, shade } from './CharacterGeometry.js';
 
 const DEG = Math.PI / 180;
+// Side-steps when the striker shuffles across the crease: step time (s), foot lift (m), how far a foot may trail
+// the moving body before it steps, the gap left when settling (behind / past the body), the longest step, how
+// far ahead a step lands (m), and how far through its step one foot is before the other may lift.
+const STEP = { dur: 0.16, lift: 0.07, trail: 0.08, settle: 0.02, over: 0.16, maxLen: 0.42, ahead: 0.16, gate: 0.65 };
+const smooth = u => u * u * (3 - 2 * u);
 const SKINS = ['#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac', '#a8714a', '#d9a066', '#6b4127'];
 const HAIR = ['#17110d', '#2b1d14', '#3d2a1a', '#5a3b22', '#8a6238', '#121212', '#6e6e6e'];
 const STYLES = ['short', 'short', 'buzz', 'curly', 'long', 'short', 'bald', 'buzz'];
@@ -176,6 +181,7 @@ export class PlayerModel {
     const clip = getClip(name);
     if (name !== this.clip) {
       copyPose(this.prevPose, this.pose);
+      this.unshuffle(this.prevPose);
       this.clip = name;
       this.blend = 0;
       this.blendDur = blendDur;
@@ -186,7 +192,82 @@ export class PlayerModel {
       this.blend = Math.min(1, this.blend + dt / Math.max(0.01, this.blendDur));
       blendPose(this.pose, this.prevPose, this.tmpPose, this.blend * this.blend * (3 - 2 * this.blend));
     } else copyPose(this.pose, this.tmpPose);
+    this.shuffleFeet(this.pose);
     this.apply(this.pose);
+  }
+
+  /**
+   * Shuffle across the crease (the striker). `g` is how far the body has moved sideways (world metres
+   * along the root's +z, the off side) and `time` a clock in seconds. Each foot stays planted until it
+   * trails the body, then steps after it with a small lift, so the batter steps across instead of
+   * sliding. g = null stops it. Call before play(); the steps go into the pose's foot targets, so
+   * replays keep them.
+   */
+  setShuffle(g, time = 0) {
+    if (g == null) { this.shuf = null; return; }
+    g /= this.heightScale;
+    const s = this.shuf;
+    if (!s || time < s.time || Math.abs(g - s.g) > 0.3) {   // first frame, new ball or a jump: plant both feet
+      this.shuf = { g, time, v: 0, L: { z: g, step: null }, R: { z: g, step: null }, applied: null };
+      return;
+    }
+    const dt = Math.min(0.1, time - s.time);
+    s.time = time;
+    if (dt > 0) s.v += ((g - s.g) / dt - s.v) * Math.min(1, dt * 30);
+    s.g = g;
+    for (const side of ['L', 'R']) {
+      const f = s[side];
+      if (f.step && (f.step.u += dt / STEP.dur) >= 1) { f.z = f.step.to; f.step = null; }
+    }
+    // Next step: the foot trailing furthest, once the other foot is nearly down. On a tie the back foot
+    // leads going across to off and the front foot leads backing away to leg. When the body stops, a foot
+    // that landed a little past it stays (a wider stance) rather than stepping back.
+    const moving = Math.abs(s.v) > 0.05;
+    let pick = null, best = 0;
+    for (const side of ['L', 'R']) {
+      const f = s[side], o = s[side === 'L' ? 'R' : 'L'];
+      if (f.step || (o.step && o.step.u < STEP.gate)) continue;
+      const e = g - f.z;
+      const lagging = moving ? e * Math.sign(s.v) > STEP.trail : Math.abs(e) > (e * (f.dir || 0) < 0 ? STEP.over : STEP.settle);
+      const k = Math.abs(e) + ((side === 'R') === (e > 0) ? 0.002 : 0);
+      if (lagging && k > best) { best = k; pick = side; }
+    }
+    if (pick) {
+      const f = s[pick];
+      const to = g + Math.max(-STEP.ahead, Math.min(STEP.ahead, s.v * STEP.dur));   // land where the body will be
+      const d = Math.max(-STEP.maxLen, Math.min(STEP.maxLen, to - f.z));
+      f.step = { from: f.z, to: f.z + d, u: 0 };
+      f.dir = Math.sign(d);
+    }
+  }
+
+  /** Write the shuffle into the foot targets: planted feet stay where they landed, a stepping foot lifts. */
+  shuffleFeet(p) {
+    const s = this.shuf;
+    if (!s || !(p.legIK > 0.001 && p.ftL && p.ftR)) { if (s) s.applied = null; return; }
+    s.applied = {};
+    for (const side of ['L', 'R']) {
+      const f = s[side], ft = p['ft' + side];
+      let z = f.z, lift = 0;
+      if (f.step) {
+        z = f.step.from + (f.step.to - f.step.from) * smooth(f.step.u);
+        lift = STEP.lift * Math.sin(Math.PI * f.step.u) * Math.min(1, Math.abs(f.step.to - f.step.from) / 0.1);
+      }
+      ft[1] += z - s.g;
+      ft[4] = lift;
+      s.applied[side] = z - s.g;
+    }
+  }
+
+  /** Take last frame's shuffle back out of a pose (so a cross-fade from it doesn't count the step twice). */
+  unshuffle(p) {
+    const a = this.shuf?.applied;
+    for (const side of ['L', 'R']) {
+      const ft = p['ft' + side];
+      if (!ft) continue;
+      if (a && a[side] != null) ft[1] -= a[side];
+      ft.length = 4;
+    }
   }
 
   /**
@@ -203,7 +284,7 @@ export class PlayerModel {
    * Aim a shot clip at a ball position (root space) at contact. Iterates because the body lean and the
    * reach fit move the bat too. Returns the offset applied.
    */
-  aimShot(clip, ball, maxShift = 0.75) {
+  aimShot(clip, ball, maxShift = 0.95) {
     this.batAim = null;
     const c = getClip(clip), p = emptyPose();
     c.sample(CONTACT_T, p);
@@ -235,8 +316,10 @@ export class PlayerModel {
       dx += a.miss[0] * k; dy += a.miss[1] * k; dz += a.miss[2] * k;
     }
     for (const k of ['H', 'T']) { p.bat[k][0] += dx; p.bat[k][1] += dy; p.bat[k][2] += dz; }
-    // the body goes with the hands: weight forward/back, bend over a low ball, stand taller for a high one
-    p.root[0] += dx * 0.35; p.root[1] += Math.min(0.03, dy * 0.45); p.root[2] += dz * 0.3;
+    // the body goes with the hands: weight forward/back, bend over a low ball, stand taller for a high one,
+    // and stretch further towards a ball well wide of the shot's line
+    const wide = Math.max(0, Math.abs(dz) - 0.35) * Math.sign(dz);
+    p.root[0] += dx * 0.35; p.root[1] += Math.min(0.03, dy * 0.45); p.root[2] += dz * 0.3 + wide * 0.5;
     p.torso[0] -= dy * 28;
   }
 
@@ -286,13 +369,14 @@ export class PlayerModel {
   }
 
   /** Small proportion errors in the authored poses are corrected so the soles stay on the grass. */
-  groundFeet() {
+  groundFeet(p) {
     this.root.updateMatrixWorld(true);
     let minY = Infinity;
     for (const s of ['L', 'R']) {
       this.b['foot' + s].getWorldPosition(_v1);
       this.root.worldToLocal(_v1);
-      minY = Math.min(minY, _v1.y - LIMB.ankle);
+      const lift = p?.legIK > 0.001 ? (p['ft' + s]?.[4] || 0) * Math.min(1, p.legIK) : 0;   // a foot meant to be off the ground
+      minY = Math.min(minY, _v1.y - LIMB.ankle - lift);
     }
     if (minY < 0.12) this.b.hips.position.y -= minY;   // lift out of the ground / settle small floats; real jumps (> 12 cm) are kept
   }
@@ -361,7 +445,7 @@ export class PlayerModel {
     const heel = Math.max(0, ft[3] || 0);
     const pitch = Math.asin(Math.min(heel, 0.11) / 0.13);
     const yaw = ft[2] * DEG;
-    const T = _l1.set(ft[0], LIMB.ankle + heel, ft[1]).applyMatrix4(M);
+    const T = _l1.set(ft[0], LIMB.ankle + heel + (ft[4] || 0), ft[1]).applyMatrix4(M);   // ft[4]: whole-foot lift (side-steps)
     const kneeYaw = yaw + (side === 'L' ? 0.14 : -0.14);
     const pole = _l2.set(Math.sin(kneeYaw), 0, Math.cos(kneeYaw)).applyQuaternion(_qM);
     const S = thigh.position;

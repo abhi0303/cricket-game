@@ -109,7 +109,7 @@ export class MatchView {
     this.releaseSeen = false;
     this.recording = { frames: [], start: null, done: false };
     this.stumpAt = null;
-    for (const m of this.active) m.setBatAim(null);
+    for (const m of this.active) { m.setBatAim(null); m.setShuffle(null); }
     this.update(0);
   }
 
@@ -162,7 +162,7 @@ export class MatchView {
     if (!m || clip === 'shot_leave' || sim.tRelease == null) { m?.setBatAim(null); return; }
     const s = sim.plan.path.at(Math.max(0, tContact - sim.tRelease));
     const z = stepOut ? 7.95 : STANCE_Z;
-    m.setPosition(BATTER_X, z, Math.PI / 2);
+    m.setPosition(BATTER_X + (sim.guard || 0), z, Math.PI / 2);
     m.root.updateMatrixWorld(true);
     const ball = m.root.worldToLocal(this.frame.localToWorld(new THREE.Vector3(s.p.x, s.p.y, s.p.z)));
     m.aimShot(clip, ball);
@@ -200,7 +200,7 @@ export class MatchView {
     this.arrow.visible = true;
     // Stick x: + off side, y: + towards the bowler. Arrow points where the ball should go.
     const ang = Math.atan2(sx, sy || 0.0001);
-    this.arrow.position.set(BATTER_X + 0.3, 0.03, PITCH.popping - 0.3);
+    this.arrow.position.set(BATTER_X + (this.sim?.guard || 0) + 0.3, 0.03, PITCH.popping - 0.3);
     // The arrow geometry points down the pitch (-z); rotating by -ang turns it towards +x (off side) for ang > 0.
     this.arrow.rotation.y = -ang;
     const len = 0.8 + Math.min(1, Math.hypot(sx, sy)) * 1.2;
@@ -216,6 +216,8 @@ export class MatchView {
       case 'nonStriker': {
         const isStriker = v.kind === 'striker';
         const running = actor.action === 'run';
+        const gx = BATTER_X + (sim.guard || 0);   // the striker's guard: where they have shuffled to across the crease
+        let shuffle = false;
         if (actor.action === 'out') { clip = 'walkOff'; yaw = Math.PI / 2 + 0.6; x = actor.x - (actor.actionT * 0.6); }
         else if (actor.action === 'celebrate') { clip = 'celebrateBat'; yaw = 0; }
         else if (running) { clip = 'runBat'; yaw = actor.yaw ?? 0; ct = t; }
@@ -223,20 +225,21 @@ export class MatchView {
           clip = this.shotView.clip; ct = (t - this.shotView.t0) * this.shotView.rate; yaw = Math.PI / 2;
           if (clip === 'shot_leave') ct = Math.min(ct, 1);
           // the clip moves the body itself (stride, weight transfer): keep the root where the shot started
-          x = BATTER_X; z = this.shotAnchorZ(ct);
+          x = gx; z = this.shotAnchorZ(ct); shuffle = true;
           // played and missed: react once the swing has gone through
           if (sim.shotResult?.result === 'miss' && clip !== 'shot_leave' && ct > 0.45) { clip = this.shotView.foot === 'front' ? 'beatenFront' : 'beatenBack'; ct = ct - 0.45; }
         } else if (isStriker && actor.end === 'striker' && Math.abs(actor.z - 9) < 1.5) {
           clip = sim.phase === 'flight' ? 'backlift' : 'stance';
           ct = sim.phase === 'flight' ? t - (sim.tRelease ?? t) : t;
           yaw = Math.PI / 2;
-          if (clip === 'stance' || clip === 'backlift') { x = BATTER_X; z = STANCE_Z; }
+          if (clip === 'stance' || clip === 'backlift') { x = gx; z = STANCE_Z; shuffle = true; }
         } else {
           clip = sim.phase === 'runup' && !isStriker ? 'backUp' : 'waitBat';
           ct = t;
           yaw = actor.end === 'striker' ? Math.PI : 0;
           if (actor.end === 'striker' && !isStriker) { yaw = Math.PI / 2; clip = 'stance'; }
         }
+        m.setShuffle(shuffle ? x - BATTER_X : null, t);
         break;
       }
       case 'bowler': {

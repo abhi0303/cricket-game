@@ -2,6 +2,10 @@
 
 A playable low-poly 3D cricket game in plain HTML, CSS and JavaScript with Three.js. Build a 15-player squad, pick a legal playing XI, and play a 5, 10 or 20-over match against the computer. You can use the keyboard or a USB/Bluetooth game controller.
 
+**Play online: https://abhi0303.github.io/cricket-game/** (desktop browser recommended: Chrome, Edge, Firefox or Safari).
+
+![A delivery seen from the TV camera, with the field chart, controls and score strip](assets/preview.jpg)
+
 ## Run it
 
 There's nothing to install. The game uses ES modules, so it has to be served over HTTP (opening `index.html` straight from disk won't work):
@@ -18,10 +22,24 @@ Any static server works (`npx http-server -p 8000`, VS Code Live Server, …). T
 The cricket rules, squad validation, ball physics, AI, input handling and camera placement are plain JavaScript with no DOM, so they run in Node 18+:
 
 ```bash
-npm test          # node --test tests/
+npm test          # node --test tests/*.test.js
 ```
 
-There are 96 tests. They cover every squad-composition rule, scoring and extras, strike rotation, over changes, wickets and the next batter, free hits, bowler over limits, target chasing and results. They also run full AI-vs-AI matches in all three formats (checking that runs, balls and wickets always add up), save/resume mid-match, the bowling physics (all 10 speeds × 8 lengths, pitching inside the chosen range, bounce direction, travel and reaction times, identical results at 30/60/120 FPS, nothing passing through the bat, body or stumps), timing windows and shot selection, swing and spin direction, gamepad edge detection, dead zones and connect/disconnect, the batting and bowling camera positions, and the batting animations (footwork, contact positions, the bat keeping its speed through the ball, high finishes).
+There are 111 tests. They cover every squad-composition rule, scoring and extras, strike rotation, over changes, wickets and the next batter, free hits, bowler over limits, target chasing and results. They also run full AI-vs-AI matches in all three formats (checking that runs, balls and wickets always add up), save/resume mid-match, skipping ahead (simulating an innings, stopping exactly at the final overs of a chase), moving across the crease (keys, reach, pads and stumps, wide calls), the bowling physics (all 10 speeds × 8 lengths, pitching inside the chosen range, bounce direction, travel and reaction times, identical results at 30/60/120 FPS, nothing passing through the bat, body or stumps), timing windows and shot selection, swing and spin direction, gamepad edge detection, dead zones and connect/disconnect, the batting and bowling camera positions (including the TV framing), the field chart's orientation and counts, and the batting animations (footwork, contact positions, the bat keeping its speed through the ball, high finishes).
+
+### Publishing on GitHub Pages
+
+The game is a static site with no build step, so GitHub Pages can host it as it is. The workflow in [.github/workflows/pages.yml](.github/workflows/pages.yml) runs the tests and, if they pass, publishes `index.html`, `css/`, `src/` and `assets/` (tests, docs and scripts are left out).
+
+One-time setup:
+
+1. Push the project to GitHub (`main` branch).
+2. In the repository, open **Settings → Pages** and set **Source** to **GitHub Actions**.
+3. Open the **Actions** tab. The "Deploy to GitHub Pages" run publishes the game to `https://<user>.github.io/<repo>/`; the link is shown on the finished run.
+
+After that, every push to `main` updates the site within a minute or two. You can also re-run it by hand (**Actions → Deploy to GitHub Pages → Run workflow**). A failing test stops the deploy, so a broken build never replaces the live game. GitHub caches pages for up to 10 minutes, so a hard refresh (Ctrl/Cmd+Shift+R) shows a new version straight away.
+
+All paths in the game are relative, so it works from a repository subfolder (`/cricket-game/`) or a custom domain without changes. If you fork it or rename the repository, update the `og:url` and `og:image` addresses in `index.html` (they set the preview shown when the link is shared) and the "Play online" link above.
 
 ## How to play
 
@@ -43,7 +61,8 @@ All-rounders must have a bowling type and don't count as full-time bowlers. The 
 
 | Action | Keyboard | Xbox | PlayStation |
 |---|---|---|---|
-| Shot direction / footwork | WASD / arrows | Left stick / D-pad | Left stick / D-pad |
+| Move across the crease | ← / → | D-pad ← / → | D-pad ← / → |
+| Shot direction / footwork | WASD (or ↑ ↓) | Left stick / D-pad ↑ ↓ | Left stick / D-pad ↑ ↓ |
 | Defensive block | J | A | ✕ |
 | Ground shot (drive, cut, pull, flick, punch) | K | X | □ |
 | Lofted shot (hook with stick back) | L | B | ○ |
@@ -51,6 +70,12 @@ All-rounders must have a bowling type and don't count as full-time bowlers. The 
 | Leave | U | RS click | R3 |
 | Power / Precision modifier (hold) | Shift / C | RT / LT | R2 / L2 |
 | Call run / send back | Space / Q | LB / RB | L1 / R1 |
+
+**Moving across the crease:** before you play, hold **←** or **→** to shuffle across the crease towards that side of the screen. The batter side-steps there and the field chart shows where you are standing. You can move during the run-up and while the ball is in the air, until you play a shot. The next ball starts from your normal guard again.
+
+- Across to the off side, you can reach balls wide outside off and get in line to drive them. Your pads now cover the stumps, which brings LBW into play.
+- Away to the leg side, you make room to hit through the off side, but the stumps are exposed.
+- Wides follow the law: a ball you moved across to reach isn't a wide, and backing away can't turn a ball into one.
 
 Push the stick **up** for front-foot shots and **down** for back-foot shots, **right** for the off side and **left** for the leg side. A green arrow shows your aim. Press the shot button just before the ball arrives. The timing bar reports Early / Good / Perfect / Late, and a white ring marks where the ball pitched.
 
@@ -60,7 +85,22 @@ Pick a **speed** with **E / Y / △** (faster) and **Q / B / ○** (slower): 150
 
 **Fielding:** catches and stops are automatic. When your fielder gathers the ball while the batters are running, time slows down and you choose the throw: keeper's end (J / A), bowler's end (L / B) or best end (K / X).
 
-**Cameras:** batting has five views: behind the batsman (standard, low or high), the bowler's end (TV broadcast style) and the umpire's eye at the bowler's end. Bowling has three: behind the bowler, behind the bowler (high) and the batsman's end. Choose them in Match Settings or in **Pause → Settings**, or cycle them during play with V / View / Share. From the bowler's-end views the picture is mirrored, so the left/right shot direction is flipped to keep "right" meaning screen-right.
+**Cameras:** batting has five views: behind the batsman (standard, low or high), the bowler's end (TV broadcast) and the umpire's eye at the bowler's end. The TV broadcast view copies television coverage: a long lens from high behind the bowler's arm, with the keeper and slips along the top, the batter a third of the way down and the bowler and umpire just above the score strip. Bowling has three: behind the bowler, behind the bowler (high) and the batsman's end. Choose them in Match Settings or in **Pause → Settings**, or cycle them during play with V / View / Share. From the bowler's-end views the picture is mirrored, so the left/right shot direction is flipped to keep "right" meaning screen-right.
+
+**On screen:**
+- **Field chart (top right):** a live map of the ground with every fielder, both batters and the ball in play. It shows the field setting and how many fielders are on the off side, on the leg side and inside the circle. It turns with your camera, so a gap on the right of the chart is on the right of the screen, which is where pushing the stick right sends the ball.
+- **Controls:** the controls for what you're doing right now are listed under the chart.
+- **Score strip (bottom):** a two-row strip like TV coverage. It shows both team badges, the score and overs, the run rate or "need X from Y balls", the striker (▸) and non-striker with runs and balls, this over ball by ball, and the bowler's figures.
+
+**Auto-play and skipping ahead:**
+- **Auto-play** (in the pause menu, and on the choose-your-bowler screen) lets the AI bat or bowl for you while you watch. Pause again and choose **Take back control**. The switch happens between balls.
+- **Skip bowling** (same places, while you're bowling) simulates instantly with the score ticking over. **Stop here and play** takes over from the current ball.
+  - In the first innings it finishes the opposition's innings.
+  - In a chase you choose: **Watch the final overs**, **Bowl the final overs**, or **Simulate to the result**.
+- The finish of a chase is the last 1/2/3 overs (5/10/20-over games), a target that's within that many balls, or the last two wickets.
+- At the innings break you choose how to play the second innings.
+  - Chasing: **Start the chase**, **Jump to the final overs** (the AI bats until the finish, then you take over), **Watch the chase** or **Simulate to the result**.
+  - Defending: **Defend the total**, **Watch the final overs**, **Bowl the final overs** or **Simulate to the result**.
 
 **Anywhere:** Esc / P / Start pauses (Pause → Settings has cameras, sound, replays, aim marker and running), V / View changes the camera, R / Y replays the last ball, and Enter / A continues. Every binding can be remapped in **Controls & Tutorial**. Controllers are detected on connect, button hints switch between Xbox and PlayStation symbols, and play pauses if a controller disconnects. The keyboard always works.
 
@@ -88,7 +128,7 @@ src/game/
   BallPhysics.js                delivery planning (release solver, drag, exact bounce, timings) + batted-ball flight
   ShotModel.js                  input -> shot, timing windows, suitability, edges, launch
   DeliverySim.js                one ball from run-up to dead ball: pads/LBW, fielding, throws, running
-  FieldPlacements.js, Difficulty.js, MatchSim.js (engine <-> sim glue)
+  FieldPlacements.js, Difficulty.js, MatchSim.js (engine <-> sim glue), SkipSim.js (auto-sim / skip ahead)
   MatchController.js            the match you play: input profiles, cameras, HUD, replays, overlays
   GameManager.js, DemoController.js (menu background match)
 src/ai/                         BattingAI, BowlingAI (deliveries, bowler choice, fields), FieldingAI
@@ -98,17 +138,19 @@ src/scene/                      StadiumScene, Environment, PlayerModel, Animatio
                                 PhysicsDebug (developer overlay),
                                 CharacterGeometry (sculpted, skinned player meshes and kit),
                                 CharacterShowcase (?debug=characters line-up)
-src/ui/                         Screens (menus), HUD + overlays, Emblem, UI helpers
+src/ui/                         Screens (menus), HUD + overlays, FieldMap (field chart), Emblem, UI helpers
 src/audio/Sound.js              procedural Web Audio effects (no audio files)
+assets/preview.jpg              link-preview image (not loaded by the game)
 tests/                          node:test suites
 scripts/physicsReport.mjs       speed x length report vs the 20.12 m baseline (npm run physics-report)
 docs/bowling-physics.md         physics formulas, configuration and the full timing table
+.github/workflows/pages.yml     test + deploy to GitHub Pages
 ```
 
 **Design notes:**
 - Gameplay and visuals are separate. `DeliverySim` is deterministic given its seed and owns the truth for the ball. `MatchView` only draws what it reports, and scoring only happens when the sim's final ball record goes through `MatchEngine.recordBall()`. Skipping or interrupting animations can't change the score.
 - Physics runs in a "delivery frame" with the striker at +z. When the ends change, the scene rotates that frame 180°, so the batting camera always sits at the striker's end and the bowler always delivers from the opposite end.
-- Everything is procedural (low-poly models, canvas textures, synthesized sound), so there are no asset files.
+- Everything is procedural (low-poly models, canvas textures, synthesized sound), so the game loads no asset files.
 
 **Performance:** static stadium geometry is merged into a handful of vertex-coloured meshes and the crowd is two instanced meshes animated in a shader. A match frame is about 140 draw calls and about 110k triangles. The Graphics setting controls resolution, shadows, crowd density and a 30 fps cap on Low.
 

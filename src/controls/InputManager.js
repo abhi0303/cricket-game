@@ -80,22 +80,33 @@ export class InputManager {
   down(action) { return !!this.cur.get(action); }
   value(action) { return this.rawValue(action); }
 
-  /** Direction: keys (WASD / arrows), D-pad, or left stick. y > 0 = up/forward. */
-  axis() {
+  /**
+   * Direction: keys (WASD / arrows), D-pad, or left stick. y > 0 = up/forward.
+   * Keys and buttons bound to the `exclude` actions of `profile` don't count (batting keeps ← → for
+   * moving across the crease, so they don't also swing the shot direction).
+   */
+  axis(exclude = [], profile = this.profile) {
+    const skipKeys = new Set(), skipPad = new Set();
+    for (const a of exclude) {
+      const b = this.bindings[profile]?.[a];
+      if (b) { b.keys.forEach(k => skipKeys.add(k)); b.pad.forEach(i => skipPad.add(i)); }
+    }
+    const kdown = codes => this.kb.anyDown(codes.filter(c => !skipKeys.has(c)));
+    const pdown = i => !skipPad.has(i) && this.pad.isDown(i);
     let x = 0, y = 0;
     if (this.kb) {
-      if (this.kb.anyDown(AXIS_KEYS.left)) x -= 1;
-      if (this.kb.anyDown(AXIS_KEYS.right)) x += 1;
-      if (this.kb.anyDown(AXIS_KEYS.up)) y += 1;
-      if (this.kb.anyDown(AXIS_KEYS.down)) y -= 1;
+      if (kdown(AXIS_KEYS.left)) x -= 1;
+      if (kdown(AXIS_KEYS.right)) x += 1;
+      if (kdown(AXIS_KEYS.up)) y += 1;
+      if (kdown(AXIS_KEYS.down)) y -= 1;
     }
     if (this.pad && this.pad.connected) {
       const s = this.pad.stick('left');
       x += s.x; y -= s.y;
-      if (this.pad.isDown(PAD.LEFT)) x -= 1;
-      if (this.pad.isDown(PAD.RIGHT)) x += 1;
-      if (this.pad.isDown(PAD.UP)) y += 1;
-      if (this.pad.isDown(PAD.DOWN)) y -= 1;
+      if (pdown(PAD.LEFT)) x -= 1;
+      if (pdown(PAD.RIGHT)) x += 1;
+      if (pdown(PAD.UP)) y += 1;
+      if (pdown(PAD.DOWN)) y -= 1;
     }
     const m = Math.hypot(x, y);
     if (m > 1) { x /= m; y /= m; }

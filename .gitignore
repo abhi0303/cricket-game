@@ -1,0 +1,13 @@
+# OS and editor clutter
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Node (nothing is installed, but keep it out if a tool adds it)
+node_modules/
+npm-debug.log*
+
+# Local Pages build (made by the deploy workflow)
+_site/

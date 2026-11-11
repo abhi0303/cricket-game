@@ -5,29 +5,43 @@ import { oversString, runRate, totalExtras, DISMISSALS } from '../game/CricketRu
 import { BOWLING_TYPES, ROLE_SHORT } from '../game/PlayerAttributes.js';
 import { FIELD_PRESETS } from '../game/FieldPlacements.js';
 import { finalOversFor } from '../game/SkipSim.js';
+import { FieldMap, fieldCounts, chartColor } from './FieldMap.js';
 
 export class HUD {
   constructor(root) {
     this.root = root;
     this.cache = new Map();
+    // Layout: pause + end caption top-left; field chart with the controls under it top-right;
+    // a broadcast-style score strip along the bottom.
     root.innerHTML = `
-      <div class="hud-top">
-        <div class="scorebug"><img class="sb-emb" alt=""><div class="sb-main"><div class="sb-team"></div><div class="sb-score"></div></div>
-          <div class="sb-overs"></div><div class="sb-extra"></div><div class="sb-fh hidden">FREE HIT</div></div>
-        <div class="thisover"></div>
-        <div class="hud-tr"><span class="hud-end"></span><button class="hud-btn" data-hud="pause" aria-label="Pause">❚❚</button></div>
+      <div class="hud-tl"><button class="hud-btn" data-hud="pause" aria-label="Pause">❚❚</button><div class="hud-cap"><span class="hud-end"></span><span class="hud-last"></span></div></div>
+      <div class="hud-right">
+        <div class="fieldmap"><canvas aria-label="Field placings"></canvas><div class="fm-caption"><span class="fm-name"></span><span class="fm-count"></span></div></div>
+        <div class="hints"></div>
       </div>
       <div class="banner hidden"><div class="b-main"></div><div class="b-sub"></div></div>
       <div class="timing hidden"><div class="t-bar"><i class="z late"></i><i class="z good"></i><i class="z perfect"></i><i class="z good2"></i><i class="z early"></i><b class="t-mark"></b></div><div class="t-label"></div></div>
       <div class="meter hidden"><div class="m-type"></div><div class="m-bar"><i class="m-good"></i><i class="m-perfect"></i><i class="m-over"></i><b class="m-cursor"></b></div><div class="m-power"><i></i></div><div class="m-label"></div></div>
       <div class="prompt hidden"></div>
       <div class="auto-badge hidden"><b>AUTO-PLAY</b> <span>The AI is playing for you · pause to take control</span></div>
-      <div class="hud-bottom">
-        <div class="batters"><div class="bt bt-s"></div><div class="bt bt-n"></div><div class="partner"></div></div>
-        <div class="hints"></div>
-        <div class="bowlerbox"><div class="bw-name"></div><div class="bw-fig"></div><div class="bw-last"></div></div>
+      <div class="tvbar">
+        <div class="tv-emb tv-bat"><img alt=""></div>
+        <div class="tv-team">
+          <div class="tv-r1"><span class="tv-short"></span><span class="tv-score"></span><span class="tv-ov"></span></div>
+          <div class="tv-r2 tv-status"></div>
+        </div>
+        <div class="tv-col">
+          <div class="tv-r1 tv-player tv-striker"></div>
+          <div class="tv-r2 tv-thisover"></div>
+        </div>
+        <div class="tv-col">
+          <div class="tv-r1 tv-player tv-non"></div>
+          <div class="tv-r2 tv-bowler"></div>
+        </div>
+        <div class="tv-emb tv-bowl"><img alt=""></div>
       </div>`;
     this.q = sel => root.querySelector(sel);
+    this.map = new FieldMap(this.q('.fieldmap canvas'));
   }
 
   set(sel, html, attr = 'innerHTML') {
@@ -40,45 +54,59 @@ export class HUD {
   show(sel, on) { const el = this.q(sel); if (el) el.classList.toggle('hidden', !on); }
 
   setTeams(bat, bowl) {
-    const img = this.q('.sb-emb');
-    img.src = emblemDataURL(bat, 96);
-    this.q('.scorebug').style.setProperty('--c1', bat.primary);
-    this.q('.scorebug').style.setProperty('--c2', bat.secondary);
-    this.q('.bowlerbox').style.setProperty('--c1', bowl.primary);
+    this.q('.tv-bat img').src = emblemDataURL(bat, 96);
+    this.q('.tv-bowl img').src = emblemDataURL(bowl, 96);
+    const bar = this.q('.tvbar');
+    bar.style.setProperty('--c1', bat.primary);
+    bar.style.setProperty('--c2', bowl.primary);
+    this.bat = bat; this.bowl = bowl;
     this.cache.clear();
   }
 
-  /** Scoreboard text from the engine. */
+  /** Score strip text from the engine. */
   updateScore(engine, lastBall = null) {
     const inn = engine.innings;
     const bat = engine.battingTeam;
     const sit = engine.situation();
-    this.set('.sb-team', esc(bat.short));
-    this.set('.sb-score', `${inn.runs}<small>/${inn.wickets}</small>`);
-    this.set('.sb-overs', `${oversString(inn.legalBalls)} <small>/ ${inn.maxOvers} ov</small>`);
-    let extra = `CRR ${sit.crr.toFixed(2)}`;
+    const upper = t => esc(String(t).toUpperCase());
+    this.set('.tv-short', esc(bat.short));
+    this.set('.tv-score', `${inn.runs}-${inn.wickets}`);
+    this.set('.tv-ov', `${oversString(inn.legalBalls)}<small>/${inn.maxOvers}</small>`);
+    let status;
     if (inn.target != null) {
-      const rrr = Number.isFinite(sit.rrr) ? sit.rrr.toFixed(2) : '-';
-      extra = `Need <b>${sit.need}</b> from <b>${sit.ballsLeft}</b> · RRR ${rrr}`;
-    } else if (engine.inningsIndex === 0) extra += ` · 1st innings`;
-    this.set('.sb-extra', extra);
-    this.show('.sb-fh', inn.freeHit);
-    this.set('.thisover', inn.thisOver.map(b => `<span class="ball ${b.wicket ? 'w' : b.boundary === 6 ? 's' : b.boundary === 4 ? 'f' : b.extra ? 'x' : b.runs ? 'r' : ''}">${esc(b.label)}</span>`).join('') || '<span class="ball dim">new over</span>');
+      status = sit.need <= 0 ? 'TARGET REACHED' : `NEED ${sit.need} FROM ${sit.ballsLeft} BALL${sit.ballsLeft === 1 ? '' : 'S'}`;
+    } else status = `RUN RATE ${sit.crr.toFixed(2)}`;
+    if (inn.freeHit) status = `<b class="tv-fh">FREE HIT</b> ${status}`;
+    this.set('.tv-status', status);
     const bline = (id, star) => {
       if (!id) return '';
       const p = engine.player(id), s = inn.batters[id];
-      return `<span class="nm">${star ? '▸ ' : ''}${esc(p.name)}</span><span class="rn">${s.runs}<small>(${s.balls})</small></span>`;
+      return `<span class="tv-nm">${star ? '<i class="tv-on">▸</i>' : ''}${upper(p.name.split(' ').slice(-1)[0])}</span><span class="tv-rn">${s.runs}</span><span class="tv-bl">${s.balls}</span>`;
     };
-    this.set('.bt-s', bline(inn.striker, true));
-    this.set('.bt-n', bline(inn.nonStriker, false));
-    this.set('.partner', `Partnership ${inn.partnership.runs} (${inn.partnership.balls})`);
+    this.set('.tv-striker', bline(inn.striker, true));
+    this.set('.tv-non', bline(inn.nonStriker, false));
+    const chips = inn.thisOver.map(b => `<span class="tv-ball ${b.wicket ? 'w' : b.boundary === 6 ? 's' : b.boundary === 4 ? 'f' : b.extra ? 'x' : b.runs ? 'r' : 'd'}">${b.label === '0' || b.label === '•' ? '•' : esc(b.label)}</span>`).join('');
+    this.set('.tv-thisover', `<span class="tv-lab">THIS OVER</span>${chips}`);
     const bw = engine.bowler || (inn.lastOverBowler && engine.player(inn.lastOverBowler));
     if (bw) {
       const s = inn.bowlers[bw.id] || { balls: 0, maidens: 0, runs: 0, wickets: 0 };
-      this.set('.bw-name', `${esc(bw.name)} <small>${esc(BOWLING_TYPES[bw.bowlingType]?.label || '')}</small>`);
-      this.set('.bw-fig', `${oversString(s.balls)}-${s.maidens}-${s.runs}-${s.wickets}`);
+      this.set('.tv-bowler', `<span class="tv-nm">${upper(bw.name.split(' ').slice(-1)[0])}</span><span class="tv-fig">${s.wickets}-${s.runs}</span><span class="tv-bl">${oversString(s.balls)}</span>`);
     }
-    if (lastBall) this.set('.bw-last', lastBall.speedKph ? `${esc(lastBall.deliveryType)} · ${lastBall.speedKph} km/h · ${esc(lastBall.lengthClass)}` : '');
+    if (lastBall) this.set('.hud-last', lastBall.speedKph ? `Last ball: ${esc(lastBall.deliveryType)} · ${lastBall.speedKph} km/h · ${esc(lastBall.lengthClass)}` : '');
+  }
+
+  /** Field chart: o = { sim, up, preset } (see FieldMap). */
+  fieldMap(sim, up, presetLabel) {
+    if (!sim) return;
+    const ball = sim.phase === 'inplay' || sim.phase === 'dead' ? sim.ball?.p : null;
+    this.map.draw({
+      fielders: sim.fielders, keeper: sim.keeper, bowler: sim.bowler, batters: sim.runners,
+      ball: ball && Math.hypot(ball.x, ball.z) < 70 ? ball : null, up,
+      fieldColor: chartColor(this.bowl?.primary, this.bowl?.secondary), batColor: chartColor(this.bat?.primary, this.bat?.secondary),
+    });
+    const n = fieldCounts(sim.fielders);
+    this.set('.fm-name', esc(presetLabel || 'Field'));
+    this.set('.fm-count', `Off ${n.off} · Leg ${n.leg} · In ${n.inside}`);
   }
 
   setEnd(text) { this.set('.hud-end', esc(text)); }
@@ -228,7 +256,11 @@ export function bowlerSelectHTML(engine, suggested, preset) {
     <div class="bsel-list">${rows}</div>
     <label class="field-pick">Field <select id="fieldPreset">
       <option value="auto" ${preset === 'auto' ? 'selected' : ''}>Captain decides</option>
-      ${Object.entries(FIELD_PRESETS).map(([k, v]) => `<option value="${k}" ${preset === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></label>`;
+      ${Object.entries(FIELD_PRESETS).map(([k, v]) => `<option value="${k}" ${preset === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></label>
+    <div class="ov-actions">${optionButtons([
+      ['autoBowl', 'Auto-play', 'The AI bowls for you while you watch'],
+      ['skip', 'Skip bowling', inn.target != null ? 'Simulate ahead: the final overs or the result' : 'Simulate the rest of this innings'],
+    ])}</div>`;
 }
 
 function battingCard(engine, inn) {

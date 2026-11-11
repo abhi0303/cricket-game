@@ -9,6 +9,10 @@ import { clamp } from '../utils/Random.js';
 export const BATTER_X = -0.32;
 export const STANCE_Z = 9.1;
 
+// How far the striker can shuffle across the crease from their normal guard (m, + towards the off side),
+// and how fast (m/s of delivery time). Shot lines, reach, pads and the wide call are measured from where they stand.
+export const GUARD = { min: -0.7, max: 0.6, speed: 1.5 };
+
 // ideal: ranges of pitch length L (m from striker's stumps, <0 = full toss), line x and height y at contact
 export const SHOTS = {
   defend:        { label: 'Defensive block', foot: 'auto',  dir: 0,    arc: [-45, 60],   power: 0.16, elev: -6, risk: 0.05, bat: 'vertical',   tol: [2.2, 0.26, 0.32], ideal: { L: [2.5, 10.5], x: [-0.3, 0.45], y: [0.05, 1.25] } },
@@ -123,6 +127,7 @@ export function suitability(shotId, L, x, y, batter, bowlerKind) {
 /**
  * Resolve bat on ball.
  * @param o.shotId, o.dirDeg, o.foot, o.stepOut
+ * @param o.guard        how far the batter has moved across the crease (m, + off side); the line is read from there
  * @param o.timingError  seconds (real time), negative = early
  * @param o.batter, o.bowler, o.plan (delivery plan), o.ball {p, v} at contact
  * @param o.ctx { windowMult, edgeMult, power, precision }
@@ -141,7 +146,7 @@ export function resolveShot(o) {
   if (out.timing.startsWith('missed')) { out.reason = out.timing === 'missed-early' ? 'Too early' : 'Too late'; return out; }
 
   const L = o.stepOut ? (plan.bounceLen == null ? -0.5 : plan.bounceLen - 2.2) : (ball.bouncedBefore ? plan.bounceLen : -0.5);
-  const x = ball.p.x;
+  const x = ball.p.x - (o.guard || 0);   // line relative to the batter's guard
   const y = ball.p.y;
   const legReach = ['flick', 'pull', 'hook', 'sweep'].includes(shotId) ? 0.7 : 0.5;
   const reachHi = shotId === 'cut' ? 1.4 : shotId === 'defend' ? 0.9 : 1.2;

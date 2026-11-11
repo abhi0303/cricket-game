@@ -5,6 +5,7 @@ import { buildDeliverySim, ensureBowler } from './MatchSim.js';
 import { chooseBowler } from '../ai/BowlingAI.js';
 import { deliveryTypesFor, PITCH } from './BallPhysics.js';
 import { PHYSICS, lengthDef, defaultLengthTarget, clampToLength } from './PhysicsConfig.js';
+import { FIELD_PRESETS } from './FieldPlacements.js';
 import { BOWLING_TYPES } from './PlayerAttributes.js';
 import { RNG, clamp } from '../utils/Random.js';
 import { HUD, renderOverlay, hideOverlay, pauseHTML, bowlerSelectHTML, inningsBreakHTML, resultHTML, scorecardHTML, settingsHTML, skipHTML, simulatingHTML, updateSimulating } from '../ui/HUD.js';
@@ -33,6 +34,15 @@ export class MatchController {
   }
 
   get settings() { return this.app.settings; }
+
+  /**
+   * Is the human controlling the current delivery? Auto-play switches over between balls, so the ball
+   * in progress when it's toggled is finished by whoever started it.
+   */
+  get humanBall() {
+    const c = this.sim?.control;
+    return !!c && ((this.userBatting && c.bat === 'user') || (this.userBowling && c.bowl === 'user'));
+  }
   get input() { return this.app.input; }
 
   start() {
@@ -203,12 +213,17 @@ export class MatchController {
   // ------------------------------------------------------------------ input
   handleControls(dt) {
     const sim = this.sim, input = this.input;
-    const ax = input.axis();
+    // While batting, the keys that move the batter across the crease (← →) don't also aim the shot.
+    const ax = this.userBatting ? input.axis(['moveLeft', 'moveRight'], 'batting') : input.axis();
     if (this.userBatting) {
       // Watching from the bowler's end the picture is mirrored: keep "right" meaning screen-right.
-      if (viewMirrored(this.app.cameras.battingView)) ax.x = -ax.x;
+      const mirror = viewMirrored(this.app.cameras.battingView) ? -1 : 1;
+      ax.x *= mirror;
       input.setProfile('batting');
-      if (this.auto) { this.app.view.setShotArrow(0, 0, false); return; }
+      if (!this.humanBall) { this.app.view.setShotArrow(0, 0, false); return; }
+      // Shuffle across the crease to cover the line (screen left/right, + = towards the off side).
+      const move = (input.value('moveRight') - input.value('moveLeft')) * mirror;
+      if (move) sim.moveGuard(move, dt);
       const aiming = (sim.phase === 'runup' || sim.phase === 'flight' || sim.phase === 'ready') && !sim.shot;
       this.app.view.setShotArrow(ax.x, ax.y, aiming && Math.hypot(ax.x, ax.y) > 0.25);
       if (sim.phase === 'flight' && !sim.shot) {
@@ -235,7 +250,7 @@ export class MatchController {
         return;
       }
       input.setProfile('bowling');
-      if (this.auto) return;
+      if (!this.humanBall) return;
       if (sim.phase === 'ready' || sim.phase === 'runup') {
         const k = sim.phase === 'runup' ? 0.35 : 1;
         const t = sim.spec.target;
@@ -407,16 +422,19 @@ export class MatchController {
     if (!sim) return;
     if (this.timingShownAt >= 0 && sim.t - this.timingShownAt > 2.2) { hud.timing(null); this.timingShownAt = -1; }
     hud.autoBadge(this.auto && this.state !== 'replay');
+    // Field chart turned to match the player's camera: from the bowler's end the striker is at the top.
+    const view = this.userBatting ? this.app.cameras.battingView : this.app.cameras.bowlingView;
+    hud.fieldMap(sim, viewEnd(view) === 'bowler' ? 1 : -1, FIELD_PRESETS[sim.fieldPreset]?.label);
     if (this.state === 'between' || this.state === 'replay') {
       hud.meter(null);
       hud.prompt(null);
       hud.hints(input, 'between', this.state === 'replay' ? [['continue', 'Skip replay']] : [['continue', 'Next ball'], ['replay', 'Replay'], ['pause', 'Pause']]);
       return;
     }
-    if (this.auto) {
+    if (!this.humanBall) {
       hud.meter(null);
       hud.prompt(null);
-      hud.hints(input, this.userBatting ? 'batting' : 'bowling', [['pause', 'Take control'], ['camera', 'Camera']]);
+      hud.hints(input, this.userBatting ? 'batting' : 'bowling', this.auto ? [['pause', 'Take control'], ['camera', 'Camera']] : [['camera', 'Camera']]);
       return;
     }
     if (this.userBowling) {
@@ -438,7 +456,7 @@ export class MatchController {
         else hud.prompt(null);
       } else {
         hud.prompt(null);
-        hud.hints(input, 'batting', [['defend', 'Defend'], ['ground', 'Ground'], ['lofted', 'Lofted'], ['advanced', 'Sweep'], ['leave', 'Leave'], ['power', 'Power'], ['precision', 'Precision']]);
+        hud.hints(input, 'batting', [[['moveLeft', 'moveRight'], 'Move across'], ['defend', 'Defend'], ['ground', 'Ground'], ['lofted', 'Lofted'], ['advanced', 'Sweep'], ['leave', 'Leave'], ['power', 'Power'], ['precision', 'Precision']]);
       }
     }
   }
@@ -501,6 +519,11 @@ export class MatchController {
     const suggested = chooseBowler({ engine: e, eligible: e.eligibleBowlers(), rng: new RNG(e.state.ballsBowled + 7) });
     this.state = 'overlay';
     renderOverlay(this.overlay, bowlerSelectHTML(e, suggested, this.userFieldPreset), (act, btn) => {
+      if (act === 'autoBowl') { hideOverlay(this.overlay); this.setAutoPlay(true); this.nextBall(); return; }
+      if (act === 'skip') {
+        renderOverlay(this.overlay, skipHTML(e), (a) => { if (a === 'back') this.showBowlerSelect(); else this.skipChoice(a); });
+        return;
+      }
       if (act !== 'bowler') return;
       const fp = this.overlay.querySelector('#fieldPreset');
       if (fp) this.userFieldPreset = fp.value;
@@ -572,17 +595,15 @@ export class MatchController {
     renderOverlay(this.overlay, simulatingHTML(title), (act) => { if (act === 'simStop') run.stopped = true; });
     updateSimulating(this.overlay, e);
     const halt = eng => run.stopped || (stop ? stop(eng) : false);
+    // About 20 ms a ball (a 20-over innings takes ~2.5 s), then the final score holds for a moment.
     const tick = () => {
       if (this.simulating !== run || this.app.match !== this) return;   // quit or superseded meanwhile
-      const t0 = performance.now();
-      let r;
-      do r = simulateBalls(e, this.rng, { stop: halt, maxBalls: 1 });
-      while (!r.inningsOver && r.balls && performance.now() - t0 < 10);
+      const r = simulateBalls(e, this.rng, { stop: halt, maxBalls: 1 });
       updateSimulating(this.overlay, e);
-      if (r.inningsOver || !r.balls) this.finishSkip(watch && !run.stopped);
-      else setTimeout(tick, 16);
+      if (r.inningsOver || !r.balls) setTimeout(() => { if (this.simulating === run) this.finishSkip(watch && !run.stopped); }, r.balls || run.stopped ? 700 : 0);
+      else setTimeout(tick, 20);
     };
-    setTimeout(tick, 120);
+    setTimeout(tick, 150);
   }
 
   finishSkip(watch) {
@@ -596,10 +617,10 @@ export class MatchController {
     hideOverlay(this.overlay);
     this.hud.updateScore(e, null);
     this.auto = !!watch;
-    const s = e.situation();
-    const need = s.target != null ? `${e.battingTeam.short} need <b>${s.need}</b> from <b>${s.ballsLeft}</b> ball${s.ballsLeft === 1 ? '' : 's'}` : `${e.battingTeam.short} ${s.runs}/${s.wickets} (${s.overs} ov)`;
-    toast(`${need}${watch ? ' · watching (pause to take control)' : ''}`, 3600);
     this.nextBall();
+    const s = e.situation();
+    const need = s.target != null ? `Final overs: ${esc(e.battingTeam.short)} need <b>${s.need}</b> from <b>${s.ballsLeft}</b> ball${s.ballsLeft === 1 ? '' : 's'}` : `${esc(e.battingTeam.short)} ${s.runs}/${s.wickets} (${s.overs} ov)`;
+    toast(`${need}${watch ? ' · auto-play (pause to take control)' : ''}`, 3800);
   }
 
   showResult() {

@@ -5,7 +5,7 @@
 // Delivery frame: striker's stumps at z = +10.06, bowler's at z = -10.06, x > 0 = off side.
 
 import { planDelivery, simulateBattedBall, launchVelocity, PITCH, BALL_R } from './BallPhysics.js';
-import { resolveShot, contactZ, BATTER_X, STANCE_Z, SHOTS, shotFromInput, describeShot } from './ShotModel.js';
+import { resolveShot, contactZ, BATTER_X, STANCE_Z, SHOTS, GUARD, shotFromInput, describeShot } from './ShotModel.js';
 import { keeperPosition } from './FieldPlacements.js';
 import { chooseShot, sampleTimingError, runDecision, batterIntent, pickGap, assistAim } from '../ai/BattingAI.js';
 import { chooseThrowEnd, isSafe, END_Z, CREASE_Z } from '../ai/FieldingAI.js';
@@ -30,6 +30,15 @@ export function timeToReach(d, v, a = FIELDER_ACCEL) {
   if (d <= 0) return 0;
   const dAcc = (v * v) / (2 * a);
   return d < dAcc ? Math.sqrt((2 * d) / a) : v / a + (d - dAcc) / v;
+}
+
+/**
+ * Wide call (limited overs). A batter who moves across the crease can't make a ball wide by walking away
+ * from it, and a ball they move across to reach isn't a wide: it has to be wide of where they stand and of
+ * their normal guard.
+ */
+export function isWideLine(p, guard = 0) {
+  return p.x > PITCH.wideOff + Math.max(0, guard) || p.x < PITCH.wideLeg + Math.min(0, guard) || p.y > PITCH.headHeight;
 }
 
 export class DeliverySim {
@@ -81,6 +90,7 @@ export class DeliverySim {
     this.plan = null;
     this.tRelease = null;
     this.shot = null;           // {shotId, foot, dirDeg, stepOut, power, precision, pressT}
+    this.guard = 0;             // how far the striker has shuffled across the crease (m, + towards off)
     this.shotResult = null;
     this.resolved = false;
     this.contactMade = false;
@@ -195,6 +205,22 @@ export class DeliverySim {
     const pressT = Math.max(this.tRelease, this.t - clamp(age, 0, 0.05) * this.scale);
     this.shot = { ...s, power, precision, pressT };
     this.emit('shotStart', { shotId: s.shotId, foot: s.foot, lead: SWING_LEAD * this.deliveryScale, t: pressT });
+    return true;
+  }
+
+  /**
+   * Human batter shuffles across the crease to cover the line: dir -1..1 (+ towards the off side).
+   * Allowed until a shot is played. It runs on the delivery clock (like the bowler and the ball), so the
+   * slowed-down delivery doesn't buy extra footwork.
+   */
+  moveGuard(dir, dtReal) {
+    if (this.control.bat !== 'user' || this.shot || this.resolved || !dir) return false;
+    if (this.phase !== 'ready' && this.phase !== 'runup' && this.phase !== 'flight') return false;
+    const dt = Math.min(0.05, Math.max(0, dtReal)) * this.scale;
+    const g = clamp(this.guard + clamp(dir, -1, 1) * GUARD.speed * dt, GUARD.min, GUARD.max);
+    if (g === this.guard) return false;
+    this.guard = g;
+    this.strikerRunner.x = BATTER_X + g;
     return true;
   }
 
@@ -364,7 +390,7 @@ export class DeliverySim {
       ? { windowMult: this.D.userWindow, edgeMult: this.D.userEdge, power: this.shot.power, precision: this.shot.precision }
       : { windowMult: 1, edgeMult: this.vsUser ? this.D.cpuBatEdge : 1, power: this.shot.power, precision: this.shot.precision };
     const res = resolveShot({
-      shotId: this.shot.shotId, dirDeg: this.shot.dirDeg, foot: this.shot.foot, stepOut: this.shot.stepOut,
+      shotId: this.shot.shotId, dirDeg: this.shot.dirDeg, foot: this.shot.foot, stepOut: this.shot.stepOut, guard: this.guard,
       timingError: errReal, batter: this.strikerP, bowler: this.bowlerP, plan: this.plan,
       ball: { p: s.p, v: s.v, bouncedBefore }, ctx, rng: this.rng,
     });
@@ -373,6 +399,7 @@ export class DeliverySim {
     this.emit('timing', this.timing);
     const sr = this.strikerRunner;
     sr.z = this.shot.stepOut ? 7.2 : this.shot.foot === 'front' ? 8.55 : 9.3;
+    sr.x = BATTER_X + this.guard;
 
     if (res.result === 'clean' || res.result === 'edge') {
       // Inside edge onto the stumps: played on.
@@ -420,10 +447,12 @@ export class DeliverySim {
     const atPad = tPadRel != null ? P.at(tPadRel).p : null;
     // Front-foot: the pad sits inside the line of the bat, so balls on/outside off usually beat the bat
     // and go on (bowled) while balls nipping back hit the pad. A bit of randomness for misjudgement.
-    const judge = this.rng.gauss(0, 0.1);
-    const padX = this.shot?.stepOut ? -0.1 + judge : !shotOffered ? -0.14 + judge * 0.5
-      : foot === 'front' ? clamp((atPad?.x ?? 0) - 0.24 + judge, -0.45, 0.08) : -0.22 + judge * 0.5;
-    const hitsPad = atPad && Math.abs(atPad.x - padX) < 0.18 && atPad.y < 0.6;
+    // Pads and body move with the batter's guard: across to off they cover the stumps, away to leg they leave them.
+    const judge = this.rng.gauss(0, 0.1), g = this.guard;
+    const padX = g + (this.shot?.stepOut ? -0.1 + judge : !shotOffered ? -0.14 + judge * 0.5
+      : foot === 'front' ? clamp((atPad?.x ?? 0) - g - 0.24 + judge, -0.45, 0.08) : -0.22 + judge * 0.5);
+    // Pad zone: the front pad reaches 18 cm either side of padX, the back leg covers a little more on the leg side.
+    const hitsPad = atPad && atPad.x > padX - 0.3 && atPad.x < padX + 0.18 && atPad.y < 0.6;
     const extra = this.noBall ? 'noball' : null;
 
     // Body / helmet: swept test where the path crosses the batter's body plane (no tunnelling at any speed).
@@ -433,7 +462,7 @@ export class DeliverySim {
     const tBodyRel = P.timeAtZ(bodyZ);
     const atBody = tBodyRel != null ? P.at(tBodyRel).p : null;
     const evaded = why === 'leave' && atBody && atBody.y > 1.25;
-    if (atBody && !evaded && Math.abs(atBody.x - BATTER_X) < B.halfWidth && atBody.y >= B.yMin && atBody.y <= B.yMax) {
+    if (atBody && !evaded && Math.abs(atBody.x - (BATTER_X + g)) < B.halfWidth && atBody.y >= B.yMin && atBody.y <= B.yMax) {
       const helmet = atBody.y >= B.helmetFrom;
       this.schedule(Math.max(this.t, this.tRelease + tBodyRel), () => {
         this.padHit = true; // runs off the body are leg byes
@@ -490,7 +519,7 @@ export class DeliverySim {
     const tCr = P.timeAtZ(PITCH.popping);
     if (tCr != null) {
       const c = P.at(tCr).p;
-      if (c.x > PITCH.wideOff || c.x < PITCH.wideLeg || c.y > PITCH.headHeight) {
+      if (isWideLine(c, g)) {
         this.isWide = !this.noBall;
         if (this.isWide) this.schedule(Math.max(this.t, this.tRelease + tCr), () => this.emit('wide'));
       }

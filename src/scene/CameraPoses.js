@@ -32,8 +32,10 @@ export function battingCam(variant = 'behind') {
     behind: { pos: [0.95, 2.85, 15.9], target: [0.0, 0.75, -3.5], fov: 40 },
     behindLow: { pos: [0.55, 1.75, 13.8], target: [0.05, 1.0, -4], fov: 44 },
     behindHigh: { pos: [0.4, 4.6, 19.5], target: [0.0, 0.6, -2.5], fov: 38 },
-    // Broadcast camera high in the stand behind the bowler, zoomed onto the batter.
-    bowlerEnd: { pos: [-1.2, 8.2, -36], target: [0.05, 1.0, 8.6], fov: 14 },
+    // TV broadcast: high behind the bowler's arm on a long lens, so bowler and batter look a similar size.
+    // Framed like the TV shot: keeper and slips along the top, the batter a third of the way down,
+    // the bowler and umpire just above the score strip. (Same line of sight, aimed at the striker's end.)
+    bowlerEnd: { pos: [-0.9, 13.0, -64], target: [-0.2, -1.47, 9.1], fov: 6.6 },
     // Where the umpire stands, at eye height, behind the bowler's stumps.
     umpire: { pos: UMPIRE_EYE.slice(), target: [-0.1, 0.9, 9.4], fov: 30 },
   }[normalizeBattingView(variant)];

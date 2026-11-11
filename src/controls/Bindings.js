@@ -11,7 +11,7 @@ export const PAD_LABELS = {
 export const ACTION_LABELS = {
   up: 'Up', down: 'Down', left: 'Left', right: 'Right', confirm: 'Select', back: 'Back',
   defend: 'Defensive shot', ground: 'Ground shot', lofted: 'Lofted shot', advanced: 'Advanced shot (sweep)',
-  leave: 'Leave the ball', power: 'Power modifier', precision: 'Precision / timing modifier',
+  leave: 'Leave the ball', moveLeft: 'Move across the crease (left)', moveRight: 'Move across the crease (right)', power: 'Power modifier', precision: 'Precision / timing modifier',
   run: 'Call run', cancelRun: 'Send back / cancel run',
   bowl: 'Bowl (hold, release on the meter)', typeNext: 'Next variation (swing / spin)', typePrev: 'Previous variation',
   speedUp: 'Faster delivery (km/h)', speedDown: 'Slower delivery (km/h)', lengthNext: 'Next length (yorker → bouncer)', lengthPrev: 'Previous length',
@@ -19,7 +19,7 @@ export const ACTION_LABELS = {
   pause: 'Pause', camera: 'Change camera', replay: 'Replay last ball', continue: 'Continue / skip',
 };
 
-/** Directional "axis" bindings shared by batting and bowling. */
+/** Directional "axis" bindings shared by batting and bowling (keys bound to the batting moves are left out while batting). */
 export const AXIS_KEYS = {
   up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
 };
@@ -34,6 +34,8 @@ export const DEFAULT_BINDINGS = {
     back: { keys: ['Escape', 'Backspace'], pad: [PAD.B] },
   },
   batting: {
+    moveLeft: { keys: ['ArrowLeft'], pad: [PAD.LEFT] },
+    moveRight: { keys: ['ArrowRight'], pad: [PAD.RIGHT] },
     defend: { keys: ['KeyJ'], pad: [PAD.A] },
     lofted: { keys: ['KeyL'], pad: [PAD.B] },
     ground: { keys: ['KeyK'], pad: [PAD.X] },
