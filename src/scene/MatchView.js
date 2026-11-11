@@ -97,13 +97,15 @@ export class MatchView {
     setBallLook(ball, wear);
   }
 
-  modelFor(player, team, role) {
+  /** body: a rigged model to wear instead of the built-in body (see RiggedBody), e.g. 'batsman'. */
+  modelFor(player, team, role, body = null) {
     const whites = this.look.whites && role !== 'umpire';
-    const key = `${player?.id || role}:${role}${whites ? ':whites' : ''}`;
+    const key = `${player?.id || role}:${role}${whites ? ':whites' : ''}${body ? ':' + body : ''}`;
     let m = this.models.get(key);
     if (!m) {
       m = new PlayerModel({ player, team, role, withBat: role === 'batter', shadows: this.shadows, quality: this.quality, whites });
       m.showBall = false;
+      if (body) m.wearBody(body);
       this.models.set(key, m);
       this.frame.add(m.root);
     }
@@ -112,13 +114,16 @@ export class MatchView {
 
   hideAll() { for (const m of this.models.values()) m.root.visible = false; this.active.clear(); }
 
-  /** Attach to a new delivery: decide which models are on the field. */
-  bind(sim, { battingTeam, bowlingTeam }) {
+  /**
+   * Attach to a new delivery: decide which models are on the field. batterBody: a rigged model for both batters
+   * (the player's own side when they bat), or null for the built-in ones.
+   */
+  bind(sim, { battingTeam, bowlingTeam, batterBody = null }) {
     this.sim = sim;
     this.hideAll();
     this.view.clear();
     const add = (actor, model, kind) => { model.root.visible = true; this.active.add(model); this.view.set(actor, { model, kind, clip: null, t0: 0 }); };
-    for (const r of sim.runners) add(r, this.modelFor(r.player, battingTeam, 'batter'), r.id === sim.strikerP.id ? 'striker' : 'nonStriker');
+    for (const r of sim.runners) add(r, this.modelFor(r.player, battingTeam, 'batter', batterBody), r.id === sim.strikerP.id ? 'striker' : 'nonStriker');
     add(sim.bowler, this.modelFor(sim.bowler.player, bowlingTeam, 'fielder'), 'bowler');
     // In the nets it's just batter and bowler: no keeper, fielders or umpires.
     if (!sim.nets) {

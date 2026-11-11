@@ -8,6 +8,7 @@ import { getClip, emptyPose, copyPose, blendPose, JOINTS, CONTACT_T, SWEET, BAT_
 import { jerseyBackTexture, emblemTexture } from './Textures.js';
 import { BONES, PARENT, OFFSET, LIMB, HIP_HEIGHT, buildBody, buildHelmet, buildCap, buildUmpireHat, buildBatHandle, buildBatBlade, shade } from './CharacterGeometry.js';
 import { ballMaterial, setBallEnvironment, registerBall } from './BallLook.js';
+import { loadBody, RiggedBody } from './RiggedBody.js';
 import { bladeMaterial, batBrandFor, setBatEnvironment } from './BatLook.js';
 
 const DEG = Math.PI / 180;
@@ -183,6 +184,22 @@ export class PlayerModel {
     this.clip = null;
     this.blend = 1;
     this.blendDur = 0.18;
+  }
+
+  /**
+   * Wear a rigged character model (RiggedBody) instead of the built-in body: the built-in one (and its helmet,
+   * prints and hand ball) is hidden but still animated, and the model copies its pose; the bat stays. It shows
+   * once the model has loaded.
+   */
+  wearBody(name) {
+    if (this.bodyName === name) return;
+    this.bodyName = name;
+    loadBody(name).then(t => {
+      if (this.bodyName !== name || this.body) return;
+      this.body = new RiggedBody(t, this);
+      this.mesh.visible = false;
+      this.body.update();
+    }).catch(err => console.warn(`Body "${name}" not loaded; keeping the built-in one.`, err));
   }
 
   setKeeperHelmet(on) {
@@ -410,6 +427,7 @@ export class PlayerModel {
       if (p.ikL) this.solveArm('L', this.root.localToWorld(new THREE.Vector3(...p.ikL)));
       if (p.ikR) this.solveArm('R', this.root.localToWorld(new THREE.Vector3(...p.ikR)));
     }
+    if (this.body) this.body.update();   // a worn model copies the finished pose
   }
 
   /** Small proportion errors in the authored poses are corrected so the soles stay on the grass. */

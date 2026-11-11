@@ -222,11 +222,13 @@ src/audio/Sound.js              procedural Web Audio effects (no audio files)
 assets/preview.jpg              link-preview image (not loaded by the game)
 assets/textures/                the pitch surface (colour and relief)
 assets/models/ball/             the ball model (ball.glb) and its red and white leather (credits in CREDITS.txt)
+assets/models/batsman/          the batsman body your batters wear (batsman.glb, body.jpg; credits in CREDITS.txt)
 models-src/                     downloaded models at full size (not committed; the source for scripts/ball-model.html)
 tests/                          node:test suites
 scripts/physicsReport.mjs       speed x length report vs the 20.12 m baseline (npm run physics-report)
 scripts/pitch-texture.html      generates the pitch textures in assets/textures/ (open it from a local server and download)
 scripts/ball-model.html         turns the downloaded balls in models-src/ into assets/models/ball/
+scripts/batsman-model.html      turns the downloaded batsman in models-src/ into assets/models/batsman/
 docs/bowling-physics.md         physics formulas, configuration and the full timing table
 .github/workflows/pages.yml     test + deploy to GitHub Pages
 ```
@@ -268,6 +270,7 @@ Every player is one skinned mesh on a shared 17-bone skeleton: hips, spine, ches
 - **The pitch:** a texture image (assets/textures/pitch.jpg, made by scripts/pitch-texture.html) of dry khaki soil with a patchy network of cracks, thin straw grass that gets greener towards the edges, worn and dusty ends, the bowlers' footmarks at the popping crease, scuffed follow-through rough, spike marks and the batters' guard marks, plus a relief map so the cracks and footmarks catch the light. The creases are painted on top.
 - **The ball:** a 3D model of a leather cricket ball (see Credits), red in Tests and white otherwise: the leather texture, a dark seam groove and six rows of raised stitching. The downloaded models were slimmed for the game by scripts/ball-model.html: both balls share one shape, the stitching was simplified from about 123,000 triangles to 11,000 and the textures resized to 1024 px, so the whole ball is about 1.1 MB instead of 18 MB. Until it has loaded, a ball painted in code stands in. New leather has a polish. As the ball gets older (over 80 overs for a red ball, about 25 for a white one) it loses its shine and picks up light scuffs, specks of mud and the odd grass mark. It spins in flight: backspin with the seam upright for pace, turning about its line of flight for spin, tumbling off the bat and rolling on the grass.
 - **Variety:** each player gets a seeded height, skin tone, hairstyle and facial hair.
+- **Your batters:** when your side bats (in a match or in the nets), both batters wear a scanned, low-poly 3D body (see Credits) instead of the built-in one: a rigged model on a standard (Mixamo) skeleton, in its own training kit, without pads or a helmet. The game still animates its own skeleton exactly as before; src/scene/RiggedBody.js copies that pose onto the model's skeleton every frame, then puts the model's hands on the bat grips and its feet on the ground with two-bone IK. A batter wearing it takes the model's torso proportions (spine, neck and shoulders), and the model's arms are lengthened to the game's, so the hands land exactly on the bat. The other side's batters and all the fielders keep the built-in players for now.
 
 Animations include separate fast, medium and spin bowling actions, every batting shot, a play-and-miss reaction, running, the batter's dive for the crease, fielding (ready, chase, high / chest / low catches, two-handed pickup, long barrier, left and right dives, throw, celebrate), keeping (crouch, take, stumping) and the umpire signals (out, not out, four, six, wide, no ball, bye).
 
@@ -295,7 +298,10 @@ To inspect them, open `/?debug=characters` (developer tool) with `&view=front|ba
 
 ## Credits
 
-- Ball: "Cricket Ball (Sports)." (https://sketchfab.com/3d-models/cricket-ball-sports-b13a0d69d6ca48d4b125de2cc2e7f940) and "Cricket Ball (Sports) (White)." (https://sketchfab.com/3d-models/cricket-ball-sports-white-f7fb5ae0d11e4d37a2d9ebccfcba5592) by Rohit Pawar (https://sketchfab.com/rohit8999), licensed under CC BY 4.0 (http://creativecommons.org/licenses/by/4.0/). Simplified for the game (stitching reduced, textures resized, one shared shape). The credit also shows on the main menu.
+- Ball: "Cricket Ball (Sports)." (https://sketchfab.com/3d-models/cricket-ball-sports-b13a0d69d6ca48d4b125de2cc2e7f940) and "Cricket Ball (Sports) (White)." (https://sketchfab.com/3d-models/cricket-ball-sports-white-f7fb5ae0d11e4d37a2d9ebccfcba5592) by Rohit Pawar (https://sketchfab.com/rohit8999), licensed under CC BY 4.0 (http://creativecommons.org/licenses/by/4.0/). Simplified for the game (stitching reduced, textures resized, one shared shape).
+- Batsman: "Virat Kohli Cricket Batting Animation - Low Poly" (https://sketchfab.com/3d-models/virat-kohli-cricket-batting-animation-low-poly-a21f5e7ee14f4b6aa5cf6c94a1016932) by bhagathartworks (https://sketchfab.com/bhagathartworks), licensed under CC BY 4.0. Adapted for the game (animations and bat removed, texture resized); it's driven by the game's own animation.
+
+The credits also show on the main menu.
 
 ## Known limitations
 

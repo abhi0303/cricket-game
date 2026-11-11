@@ -76,7 +76,7 @@ export class NetsController {
     this.lastSpecs = [...this.lastSpecs.slice(-4), spec];
     app.view.setLook({ whites: false, ball: 'white', wear: 0.3 });   // a used practice ball
     app.stadium.setSightscreens('black');
-    app.view.bind(this.sim, { battingTeam: app.team, bowlingTeam: NETS_TEAM });
+    app.view.bind(this.sim, { battingTeam: app.team, bowlingTeam: NETS_TEAM, batterBody: 'batsman' });
     app.cameras.set('batting', {}, cut);
     this.hud.setEnd(`Nets · ${this.bowler.name} (${BOWLING_TYPES[cfg.type].label})`);
     this.hud.timing(null);

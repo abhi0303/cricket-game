@@ -128,7 +128,8 @@ export class MatchController {
       sim.setSpec(spec);
     }
     this.applyLook();
-    app.view.bind(sim, { battingTeam: e.battingTeam, bowlingTeam: e.bowlingTeam });
+    // the player's own batters wear the batsman model (the other side's keep the built-in players for now)
+    app.view.bind(sim, { battingTeam: e.battingTeam, bowlingTeam: e.bowlingTeam, batterBody: e.battingTeam.id === this.userTeamId ? 'batsman' : null });
     app.view.aim.userHidden = !this.settings.aimMarker;
     app.cameras.set(userBatting ? 'batting' : 'bowling', { phase: 'aim' }, true);
     const sit = e.situation();

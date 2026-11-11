@@ -1,5 +1,5 @@
 // Third-party work used in the game. CC BY needs the author, the work, a link and the licence wherever it's shared:
-// shown on the main menu and listed in the README (and assets/models/ball/CREDITS.txt).
+// shown on the main menu and listed in the README (and the CREDITS.txt next to each model).
 import { esc } from './UI.js';
 
 export const CREDITS = [
@@ -11,11 +11,21 @@ export const CREDITS = [
     what: 'Ball', title: 'Cricket Ball (Sports) (White).', author: 'Rohit Pawar', authorUrl: 'https://sketchfab.com/rohit8999',
     url: 'https://sketchfab.com/3d-models/cricket-ball-sports-white-f7fb5ae0d11e4d37a2d9ebccfcba5592', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
   },
+  {
+    what: 'Batsman', title: 'Virat Kohli Cricket Batting Animation - Low Poly', author: 'bhagathartworks', authorUrl: 'https://sketchfab.com/bhagathartworks',
+    url: 'https://sketchfab.com/3d-models/virat-kohli-cricket-batting-animation-low-poly-a21f5e7ee14f4b6aa5cf6c94a1016932', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
+  },
 ];
 
 const a = (href, text) => `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(text)}</a>`;
 
-/** One short line for the main menu. */
+/** A short credit line for the main menu: each kind of model, its works, author and licence. */
 export function creditsLineHTML() {
-  return `3D ball: ${CREDITS.map(c => a(c.url, c.title.replace(/\.$/, ''))).join(' and ')} by ${a(CREDITS[0].authorUrl, CREDITS[0].author)}, ${a(CREDITS[0].licenseUrl, CREDITS[0].license)} (simplified for the game)`;
+  const groups = [];
+  for (const c of CREDITS) {
+    let g = groups.find(x => x.what === c.what);
+    if (!g) groups.push(g = { what: c.what, items: [] });
+    g.items.push(c);
+  }
+  return groups.map(g => `3D ${g.what.toLowerCase()}: ${g.items.map(c => a(c.url, c.title.replace(/\.$/, ''))).join(' and ')} by ${a(g.items[0].authorUrl, g.items[0].author)}, ${a(g.items[0].licenseUrl, g.items[0].license)}`).join(' · ') + ' (adapted for the game)';
 }
