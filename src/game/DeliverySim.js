@@ -32,6 +32,9 @@ export const DIVE = { range: 4.5, stretch: 0.25, slide: 0.55, reach: 1.9, total:
 const runnerSpeed = p => 5.9 + 1.6 * (p.fielding / 100);
 const FIELDER_ACCEL = 6;
 const CLEAN_WAIT = 0.9;   // how much later a fielder will take the ball cleanly rather than dive for it (s)
+// From the keeper (or bowler) going for the stumps with the ball to the gloves knocking the bails off; matches
+// the 'stump' animation, so the bails fly when the gloves get there.
+export const STUMP_REACH = 0.16;
 /** Time to cover d metres from standing with constant acceleration up to top speed v. */
 export function timeToReach(d, v, a = FIELDER_ACCEL) {
   if (d <= 0) return 0;
@@ -633,8 +636,14 @@ export class DeliverySim {
     if (this.shot?.stepOut && this.kind === 'spin' && why === 'miss') {
       const ok = this.rng.chance(0.38 + 0.38 * skill);
       if (ok && dismissalAllowed('stumped', { extra: this.isWide ? 'wide' : this.noBall ? 'noball' : null, freeHit: this.freeHit })) {
-        this.emit('stumpsHit', { end: 'striker', stumping: true });
-        this.out('stumped', this.strikerP.id, k.id, 'Stumped!');
+        // ball in the gloves, then the gloves to the stumps
+        k.yaw = Math.PI;
+        this.emit('breakStumps', { end: 'striker', by: k.id, stumping: true });
+        this.schedule(this.t + STUMP_REACH, () => {
+          if (this.phase === 'dead') return;
+          this.emit('stumpsHit', { end: 'striker', stumping: true });
+          this.out('stumped', this.strikerP.id, k.id, 'Stumped!');
+        });
         return;
       }
     }
@@ -834,9 +843,10 @@ export class DeliverySim {
   doThrow(f, end) {
     if (this.phase === 'dead') return;
     const receiver0 = end === 'striker' ? this.keeper : this.bowler;
+    const stumpsZ = end === 'striker' ? PITCH.half : -PITCH.half, behind = end === 'striker' ? 1 : -1;
     if (receiver0 === f) {
       // Keeper (or bowler) picked it up themselves: run to the stumps with it.
-      const to = { x: 0.2, z: end === 'striker' ? PITCH.half + 0.6 : -PITCH.half - 0.6 };
+      const to = { x: 0.2, z: stumpsZ + behind * 0.6 };
       const d = Math.hypot(to.x - f.x, to.z - f.z);
       f.target = to;
       this.ball.state = 'held';
@@ -844,58 +854,129 @@ export class DeliverySim {
       this.schedule(this.t + d / f.speed + 0.05, () => {
         if (this.phase === 'dead') return;
         f.x = to.x; f.z = to.z;
-        this.ball.heldAtEnd = end;
         this.setAction(f, 'collect');
-        this.checkHeldAtEnd(true);
-        if (this.phase !== 'dead') this.schedule(this.t + 0.4, () => this.checkDead());
+        this.atTheStumps(f, end);
       });
       return;
     }
     const casual = this.runState === 'idle';
     const speed = (f.throwSpeed || 26) * (casual ? 0.65 : 1);
-    const to = { x: end === 'striker' ? 0.15 : 0.1, y: 0.85, z: end === 'striker' ? PITCH.half + 0.45 : -PITCH.half - 0.45 };
-    // Turn to face the stumps; the ball leaves the throwing hand, up and a little in front of the head.
-    f.yaw = Math.atan2(to.x - f.x, to.z - f.z);
-    const from = { x: f.x + Math.sin(f.yaw) * 0.35 - Math.cos(f.yaw) * 0.18, y: 2.05, z: f.z + Math.cos(f.yaw) * 0.35 + Math.sin(f.yaw) * 0.18 };
-    const d = Math.hypot(to.x - from.x, to.z - from.z);
+    const receiver = receiver0;
     const wild = !casual && this.rng.chance(0.07 * (1.2 - f.player.fielding / 100));
-    const windup = casual ? 0.35 : 0.3;
-    const flight = d / speed;
-    // Direct hit from close in saves the gather; otherwise the receiver needs time to take it and break the wicket.
+    // Where the throw is taken: chest-high just behind the stumps, or wide of them for a wild one.
+    let to = { x: end === 'striker' ? 0.15 : 0.1, y: 0.85, z: stumpsZ + behind * 0.45 };
+    if (wild) to = { x: to.x + this.rng.sign() * this.rng.range(1.2, 2.2), y: this.rng.range(0.4, 1.5), z: to.z + behind * this.rng.range(0, 0.9) };
+    const aim = () => {
+      // Turn to face the target; the ball leaves the throwing hand, up and a little in front of the head.
+      f.yaw = Math.atan2(to.x - f.x, to.z - f.z);
+      return { x: f.x + Math.sin(f.yaw) * 0.35 - Math.cos(f.yaw) * 0.18, y: 2.05, z: f.z + Math.cos(f.yaw) * 0.35 + Math.sin(f.yaw) * 0.18 };
+    };
+    let from = aim();
+    let d = Math.hypot(to.x - from.x, to.z - from.z);
+    // A direct hit flies into the stumps; otherwise the receiver takes it and breaks the wicket with it.
     const direct = !casual && !wild && d < 28 && this.rng.chance(0.18 + 0.25 * f.player.fielding / 100 - d * 0.004);
-    const gather = casual ? 0 : direct ? 0 : 0.2 + this.rng.range(0, 0.25);
+    if (direct) { to = { x: this.rng.range(-0.06, 0.06), y: this.rng.range(0.25, 0.55), z: stumpsZ }; from = aim(); d = Math.hypot(to.x - from.x, to.z - from.z); }
+    const windup = casual ? 0.35 : 0.3;
+    const flight = d / speed * (wild ? 1.15 : 1);
+    const tTake = this.t + windup + flight;
+    const gather = casual || direct ? 0 : (wild ? 0.6 : 0.2) + this.rng.range(0, 0.25);
     this.setAction(f, 'throw');
     this.ball.state = 'thrown';
-    this.ball.throw = { from, to, start: this.t + windup, dur: flight, end, arc: Math.min(6, d * 0.06) };
+    this.ball.throw = { from, to, start: this.t + windup, dur: flight, end, arc: Math.min(wild ? 7 : 6, d * (wild ? 0.09 : 0.06)) };
     this.ball.throwEnd = end;
-    this.ball.throwArrive = this.t + windup + flight + (wild ? 0.8 : 0) + gather;
+    this.ball.throwArrive = tTake + gather;     // when the bails can come off (the running AI judges by this)
     this.ball.directHit = direct;
     this.ball.holder = f.id;
     this.emit('throw', { fielder: f.id, end, wild });
-    const receiver = end === 'striker' ? this.keeper : this.bowler;
-    receiver.target = { x: to.x, z: to.z + (end === 'striker' ? 0.2 : -0.2) };
-    this.schedule(this.ball.throwArrive, () => {
-      if (this.phase === 'dead') return;
-      this.ball.state = 'held';
-      this.ball.holder = receiver.id;
-      this.ball.p = { ...to };
-      this.ball.heldAtEnd = end;
-      this.setAction(receiver, 'collect');
-      this.emit('throwArrive', { end, wild, direct });
-      this.checkHeldAtEnd(true);
-      if (this.phase !== 'dead') this.schedule(this.t + 0.45, () => this.checkDead());
-    });
+    receiver.target = direct ? { x: 0.35, z: stumpsZ + behind * 0.7 } : { x: to.x, z: to.z + behind * 0.2 };
+    this.schedule(tTake, () => (direct ? this.directHit(f, receiver, end, to) : this.takeThrow(receiver, end, to)));
   }
 
-  /** Ball is at the stumps at one end: anyone out of their ground there is run out. */
+  /** The receiver takes the throw in the gloves (the ball is in his hands from here), facing the stumps. */
+  takeThrow(r, end, to) {
+    if (this.phase === 'dead') return;
+    const stumpsZ = end === 'striker' ? PITCH.half : -PITCH.half, behind = end === 'striker' ? 1 : -1;
+    this.ball.state = 'held';
+    this.ball.holder = r.id;
+    this.ball.p = { ...to };
+    const sx = to.x, sz = to.z + behind * 0.2;
+    if (Math.hypot(r.x - sx, r.z - sz) < 2.5) { r.x = sx; r.z = sz; }
+    r.target = { x: 0.2, z: stumpsZ + behind * 0.6 };     // and back over the stumps (a wild throw is taken wide)
+    r.yaw = Math.atan2(0 - r.x, stumpsZ - r.z);
+    this.setAction(r, 'collect');
+    this.emit('throwTaken', { end, by: r.id });
+    // going down to the stumps is part of the gather: the bails come off at throwArrive
+    this.schedule(Math.max(this.t, this.ball.throwArrive - STUMP_REACH), () => this.atTheStumps(r, end));
+  }
+
+  /**
+   * Ball in hand at the stumps: if a batter is short of their ground, go for the run-out and break the wicket
+   * with the ball (the bails come off when the gloves reach the stumps); otherwise hold it there.
+   */
+  atTheStumps(r, end) {
+    if (this.phase === 'dead') return;
+    const stumpsZ = end === 'striker' ? PITCH.half : -PITCH.half;
+    r.yaw = Math.atan2(0 - r.x, stumpsZ - r.z);
+    const tBails = this.t + STUMP_REACH;
+    const near = this.runners.slice().sort((a, b) => Math.abs(a.z - CREASE_Z[end]) - Math.abs(b.z - CREASE_Z[end]))[0];
+    // Will that batter still be short when the gloves get there? (where they'll be at their current pace)
+    const ahead = near?.target ? Math.sign(RUN_TO[near.target] - near.z) * (near.v || 0) * STUMP_REACH : 0;
+    const going = !!near && !isSafe({ ...near, z: near.z + ahead }, end);
+    const arrive = () => {
+      if (this.phase === 'dead') return;
+      this.ball.heldAtEnd = end;
+      this.emit('throwArrive', { end });
+      this.checkHeldAtEnd(true);
+      if (this.phase !== 'dead') this.schedule(this.t + 0.45, () => this.checkDead());
+    };
+    if (going) {
+      this.breaking = { end, t: this.t };
+      this.emit('breakStumps', { end, by: r.id });
+      this.schedule(tBails, arrive);
+    } else this.schedule(Math.max(this.t, this.ball.throwArrive ?? this.t), arrive);
+  }
+
+  /** A direct hit: the ball knocks the stumps over. Short of the crease: out. In time: it rebounds into the field. */
+  directHit(f, r, end, to) {
+    if (this.phase === 'dead') return;
+    this.ball.p = { ...to };
+    const near = this.runners.slice().sort((a, b) => Math.abs(a.z - CREASE_Z[end]) - Math.abs(b.z - CREASE_Z[end]))[0];
+    this.emit('stumpsHit', { end, runout: true, direct: true });
+    if (near && !isSafe(near, end) && (near.target || this.runState !== 'idle')) {
+      this.ball.state = 'held';
+      this.ball.holder = null;
+      this.out('runout', near.id, f.id, `Run out! Direct hit from ${f.player.name}`, end);
+      return;
+    }
+    // Made it: the ball comes off the stumps back towards the field and is gathered (overthrows are possible).
+    const back = Math.atan2(f.x - to.x, f.z - to.z) + this.rng.range(-0.7, 0.7), sp = this.rng.range(2, 5);
+    this.ball.state = 'batted';
+    this.ball.holder = null;
+    this.bat = simulateBattedBall({ ...to }, { x: Math.sin(back) * sp, y: 0.6, z: Math.cos(back) * sp }, { startT: this.t, alreadyBounced: true });
+    this.planIntercept();
+  }
+
+  /**
+   * Ball is at the stumps at one end: anyone out of their ground there is run out. The one holding the ball
+   * takes it to the stumps first (STUMP_REACH); the bails come off when the gloves get there, and a batter who
+   * makes their ground in that moment survives.
+   */
   checkHeldAtEnd(onArrival = false) {
     const end = this.ball.heldAtEnd;
     if (!end || this.phase === 'dead') return;
     const near = this.runners.slice().sort((a, b) => Math.abs(a.z - CREASE_Z[end]) - Math.abs(b.z - CREASE_Z[end]))[0];
-    if (!isSafe(near, end) && (near.target || this.runState !== 'idle' || onArrival)) {
+    if (isSafe(near, end) || !(near.target || this.runState !== 'idle' || onArrival)) return;
+    let b = this.breaking;
+    if (b && (b.end !== end || this.t - b.t > 1.0)) b = this.breaking = null;   // an old attempt
+    if (b && this.t - b.t >= STUMP_REACH - 1e-6) {
       this.emit('stumpsHit', { end, runout: true });
       this.out('runout', near.id, this.ball.holder, `Run out! ${near.player.name} is short`, end);
+      return;
     }
+    if (b) return;                       // the gloves are on their way
+    this.breaking = { end, t: this.t };
+    this.emit('breakStumps', { end, by: this.ball.holder });
+    this.schedule(this.t + STUMP_REACH, () => { if (this.phase !== 'dead') this.checkHeldAtEnd(true); });
   }
 
   checkDead(force = false) {
@@ -1072,7 +1153,7 @@ export class DeliverySim {
           f.yaw = Math.atan2(dx, dz);
           if (!['dive', 'catch', 'throw', 'pickup', 'collect'].includes(f.action) || f.actionT > 0.7) this.setAction(f, 'run');
         } else { f.v = 0; if (f.action === 'run') this.setAction(f, f.isKeeper ? 'crouch' : 'ready'); }
-      } else if (bp && f.action !== 'throw') {
+      } else if (bp && f.action !== 'throw' && this.ball.holder !== f.id) {
         f.v = 0;
         f.yaw = Math.atan2(bp.x - f.x, bp.z - f.z);
         if (f.action === 'run' || (['dive', 'catch', 'pickup', 'collect'].includes(f.action) && f.actionT > 1.2)) this.setAction(f, f.isKeeper ? 'crouch' : 'ready');

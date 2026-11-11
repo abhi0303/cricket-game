@@ -129,7 +129,7 @@ export class MatchView {
     this.deliverStart = null;
     this.releaseSeen = false;
     this.recording = { frames: [], start: null, done: false, stumps: [], marks: {} };
-    this.stumpAt = null;
+    this.stumpBy = null;      // { id, t, end }: who is breaking the wicket with the ball, from when
     for (const m of this.active) { m.setBatAim(null); m.setShuffle(null); }
     this.update(0);
   }
@@ -160,9 +160,9 @@ export class MatchView {
         const strength = ev.runout ? 0.8 : 1.2;
         this.stadium.breakStumps(ev.end, strength);
         this.recording?.stumps.push({ t: ev.t, end: ev.end, strength });   // replays break them at the same moment
-        if (ev.end === 'striker' && (ev.stumping || (ev.runout && this.sim.ball.holder === this.sim.keeper.id))) this.stumpAt = ev.t;
         break;
       }
+      case 'breakStumps': this.stumpBy = { id: ev.by, t: ev.t, end: ev.end }; break;
       default: break;
     }
     // key moments for the replay director
@@ -301,12 +301,13 @@ export class MatchView {
           clip = { fast: 'deliverFast', 'fast-medium': 'deliverMedium', medium: 'deliverMedium', 'off-spin': 'deliverOffSpin', 'leg-spin': 'deliverLegSpin' }[sim.bowlerP.bowlingType] || 'deliverMedium';
           ct = (t - this.deliverStart) * (RELEASE_T / stride);
         } else if (sim.phase === 'ready') { clip = 'standField'; ct = t; yaw = 0; }
+        else if (this.stumpBy?.id === actor.id && t - this.stumpBy.t < 1.4) { clip = 'stump'; ct = t - this.stumpBy.t; yaw = this.stumpBy.end === 'striker' ? Math.PI : 0; }
         else { const fc = this.fieldClip(actor, t, v); clip = fc.clip; ct = fc.ct; if (fc.yaw != null) yaw = fc.yaw; }
         if (clip === 'celebrate') clip = 'celebrateBowler';
         break;
       }
       case 'keeper': {
-        if (this.stumpAt != null && t - this.stumpAt < 1.4) { clip = 'stump'; ct = t - this.stumpAt; yaw = Math.PI; break; }
+        if (this.stumpBy?.id === actor.id && t - this.stumpBy.t < 1.4) { clip = 'stump'; ct = t - this.stumpBy.t; yaw = this.stumpBy.end === 'striker' ? Math.PI : 0; break; }
         if (actor.action === 'crouch') {
           // standing up to a spinner the keeper stays down until the ball is past the bat (and out of the camera's way)
           const rise = sim.kind === 'spin' ? 0.02 : 0.25;

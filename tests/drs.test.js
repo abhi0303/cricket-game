@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { lbwTrack, reviewVerdict, umpireSaysOut, aiWantsReview, applyVerdict, ZONE } from '../src/game/DRS.js';
-import { takeKind, takeYaw } from '../src/game/DeliverySim.js';
+import { takeKind, takeYaw, STUMP_REACH } from '../src/game/DeliverySim.js';
 import { BALL_R } from '../src/game/BallPhysics.js';
 import { MatchEngine } from '../src/game/MatchEngine.js';
 import { generateCpuTeam, createDefaultUserTeam } from '../src/game/TeamManager.js';
@@ -156,4 +156,34 @@ test('fielders mostly take the ball on their feet, dive only when they must, and
   }
   assert.ok(dives / stops < 0.3, `ground fielding by diving: ${(dives / stops * 100).toFixed(0)}%`);
   assert.ok(throws > 50 && facing === throws, `${facing}/${throws} throws made facing the stumps`);
+});
+
+test('run-outs: the throw is taken in the gloves first, then the stumps are broken with the ball in hand', () => {
+  let taken = 0, direct = 0, outs = 0;
+  for (let seed = 1; seed <= 10; seed++) {
+    const rng = new RNG(70 + seed);
+    const a = generateCpuTeam(rng, { difficulty: 'normal' }), b = generateCpuTeam(rng, { difficulty: 'normal', avoidName: a.name });
+    const e = new MatchEngine({ teams: [a, b], config: { overs: 20 }, toss: { winner: a.id, decision: 'bat' } });
+    while (e.phase !== 'complete') {
+      if (e.phase === 'break') { e.beginNextInnings(); continue; }
+      ensureBowler(e, rng);
+      const sim = buildDeliverySim(e, { rng });
+      const r = sim.fastForward();
+      e.recordBall(r);
+      if (r.dismissal?.type !== 'runout') continue;
+      outs++;
+      const ev = sim.events, hit = ev.find(x => x.type === 'stumpsHit' && x.runout);
+      assert.ok(hit, 'the stumps were broken');
+      if (hit.direct) { direct++; assert.ok(!ev.some(x => x.type === 'throwTaken' && x.t > hit.t - 2 && x.end === hit.end && x.t <= hit.t), 'a direct hit needs no one to take it'); continue; }
+      const brk = ev.filter(x => x.type === 'breakStumps' && x.end === hit.end && x.t <= hit.t).at(-1);
+      assert.ok(brk, 'someone went for the stumps');
+      // (events land on 60 fps frames, so allow a frame either way)
+      assert.ok(Math.abs(hit.t - brk.t - STUMP_REACH) < 0.03, `the bails come off when the gloves reach the stumps (${(hit.t - brk.t).toFixed(3)} s)`);
+      const take = ev.filter(x => x.type === 'throwTaken' && x.end === hit.end && x.t <= brk.t).at(-1);
+      if (take) { taken++; assert.equal(take.by, brk.by, 'the one who took the throw broke the wicket'); }
+      assert.equal(sim.ball.holder, brk.by, 'with the ball in hand');
+    }
+  }
+  assert.ok(outs >= 3, `run-outs happen (${outs})`);
+  assert.ok(taken >= 1, `throws taken then the wicket broken (${taken}); direct hits ${direct}`);
 });
