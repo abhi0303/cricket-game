@@ -200,8 +200,36 @@ const BACKLIFT = {
   bat: BAT([-0.12, 1.12, 0.2], [0.55, -0.8, 0.12], [0.1, 0.25, 1]),
 };
 
+// Waiting at the crease: side-on, knees flexed and weight forward on the balls of the feet, a slight bend at
+// the hips, head level and turned to the bowler; hands low in front of the back thigh, the bat grounded just
+// in front of the back toe, face open towards the bowler.
+const GUARD = {
+  ...STANCE,
+  root: [-0.03, -0.17, -0.08], hips: [4, 6, 0], torso: [28, 10, -2], head: [-26, 72, -4],
+  thighL: [-34, 0, 13], shinL: [52, 0, 0], thighR: [-32, 0, -13], shinR: [50, 0, 0],
+  poleL: [0.9, -0.6, 0.25], poleR: [-0.4, -1, 0.15],
+  bat: BAT([-0.03, 0.81, 0.19], [0.26, 1, -0.06], [0.7, 0, 0.7]),
+};
+// The pick-up as the bowler reaches the crease (the "trigger"): hands up to the waist in front of the back hip,
+// the bat raised behind, roughly level and pointing back at the keeper, face open.
+const RAISED = {
+  ...GUARD,
+  root: [-0.03, -0.17, -0.08], torso: [31, 4, -2], head: [-30, 74, -4],
+  poleL: [0.5, -0.85, 0.15], poleR: [-0.5, -0.9, -0.05],
+  bat: BAT([-0.1, 0.92, 0.17], [0.9, -0.14, 0.05], [0.05, -0.2, 1]),
+};
+/** The waiting routine: tap the bat at the crease two or three times, then a pause (repeats every 2.4 s). */
+const TAP = { period: 2.4, taps: [0, 0.5, 1.0], dur: 0.32, lift: 0.09 };
+function tapLift(t) {
+  const c = ((t % TAP.period) + TAP.period) % TAP.period;
+  for (const t0 of TAP.taps) if (c >= t0 && c < t0 + TAP.dur) return Math.sin((c - t0) / TAP.dur * Math.PI);
+  return 0;
+}
+
 /** Shot clips: contact always happens at t = CONTACT_T. */
 export const CONTACT_T = 0.2;
+/** How long before the release the batter starts picking the bat up (s). */
+export const TRIGGER_LEAD = 0.75;
 
 /**
  * Front-foot stroke: stride in, head over the ball, bat down in a vertical arc, through the line and up into a
@@ -385,16 +413,25 @@ const CLIPS = {
     p.armL = [4, 0, 8 + S(t * 2) * 1.5]; p.armR = [4, 0, -8 - S(t * 2) * 1.5];
     p.thighL = [0, 0, 4]; p.thighR = [0, 0, -4];
   }),
-  stance: proc(2.4, (t, p) => {
-    const k = copyPose(emptyPose(), Object.assign(base(), STANCE));
+  // Waiting: taps the bat on the crease (the toe comes up off the grass and back down, the hands barely move),
+  // breathes and settles the weight; head still, eyes on the bowler.
+  stance: proc(TAP.period, (t, p) => {
+    const k = copyPose(emptyPose(), Object.assign(base(), GUARD));
     Object.assign(p, k);
-    // tap the bat, breathe, shift the weight a touch
-    const tap = Math.max(0, S(t * 2.6)) * 0.035;
-    p.bat = { H: [STANCE.bat.H[0], STANCE.bat.H[1] + tap, STANCE.bat.H[2]], T: [STANCE.bat.T[0], STANCE.bat.T[1] + tap, STANCE.bat.T[2]], F: STANCE.bat.F.slice() };
-    p.root = [STANCE.root[0] + S(t * 1.3) * 0.01, STANCE.root[1] + S(t * 2.6) * 0.004, STANCE.root[2]];
-    p.torso = [STANCE.torso[0] + S(t * 2.6) * 0.8, STANCE.torso[1], STANCE.torso[2]];
+    const u = tapLift(t), lift = u * TAP.lift;
+    const B = GUARD.bat;
+    p.bat = {
+      H: [B.H[0] + u * 0.01, B.H[1] + lift * 0.3, B.H[2]],
+      T: [B.T[0] - lift * 0.35, B.T[1] + lift, B.T[2] - lift * 0.1],
+      F: B.F.slice(),
+    };
+    p.root = [GUARD.root[0] + S(t * 1.3) * 0.008, GUARD.root[1] + S(t * 2.6) * 0.004 - u * 0.006, GUARD.root[2]];
+    p.torso = [GUARD.torso[0] + S(t * 2.6) * 0.8 + u * 1.5, GUARD.torso[1], GUARD.torso[2]];
   }),
-  backlift: keyed(0.4, [[0, STANCE], [0.35, BACKLIFT]]),
+  // The pick-up as the bowler arrives: from the tapping stance up to the raised bat (held until release).
+  trigger: keyed(0.75, [[0, GUARD], [0.42, RAISED], [0.75, RAISED]]),
+  // After release: from the raised bat up into the backlift for the shot.
+  backlift: keyed(0.4, [[0, RAISED], [0.35, BACKLIFT]]),
   waitBat: proc(3, (t, p) => {
     p.armR = [-20, 0, -10]; p.foreR = [-40, 0, 0];
     p.bat = { H: [-0.25, 0.8, 0.3], T: [-0.3, 0.05, 0.42], F: [0, 0, 1] };

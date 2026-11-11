@@ -271,6 +271,7 @@ The stumps are whole at the start of each angle and break at the moment the ball
 
 ### Batting animation
 
+- **Stance and routine:** the batter waits side-on with knees flexed, a slight bend at the hips, head level and turned to the bowler, and hands low in front of the back thigh. The bat rests just in front of the back toe and he taps it on the crease two or three times, then pauses, while the bowler runs in. About 0.75 s before release he picks the bat up: hands to the waist by the back hip, the bat roughly level and pointing back at the keeper with the face open. From there it goes up into the backlift as the ball is released.
 - **Footwork:** batting clips place the feet, and two-bone leg IK plants them. Front-foot shots stride towards the ball with the knee bent, the head over the front knee and the back heel coming up. Back-foot shots go back and across. The sweep goes down on the back knee.
 - **Swing:** each shot is keyframed through backlift, downswing, contact, follow-through and finish. The keys are joined by a smooth spline, so the bat travels in a curved arc and keeps its speed through the ball instead of stopping at each key. Drives come down vertically and finish high over the front shoulder. The pull and hook turn the hips and roll over the ball. Defensive shots hold a dead bat.
 - **Arms:** both hands stay on the handle through arm IK with authored elbow directions (a high front elbow on drives). If a pose puts the bat out of reach, the bat is drawn in towards the shoulders rather than the hands leaving it.

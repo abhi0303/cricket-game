@@ -3,7 +3,7 @@
 // and records frames for instant replays. It never changes the simulation.
 import * as THREE from 'three';
 import { PlayerModel } from './PlayerModel.js';
-import { CONTACT_T, RELEASE_T, TAKE_CT, copyPose, emptyPose } from './Animations.js';
+import { CONTACT_T, RELEASE_T, TAKE_CT, TRIGGER_LEAD, copyPose, emptyPose } from './Animations.js';
 import { PITCH } from '../game/BallPhysics.js';
 import { lengthDef } from '../game/PhysicsConfig.js';
 import { BATTER_X, STANCE_Z } from '../game/ShotModel.js';
@@ -277,10 +277,13 @@ export class MatchView {
           // played and missed: react once the swing has gone through
           if (sim.shotResult?.result === 'miss' && clip !== 'shot_leave' && ct > 0.45) { clip = this.shotView.foot === 'front' ? 'beatenFront' : 'beatenBack'; ct = ct - 0.45; }
         } else if (isStriker && actor.end === 'striker' && Math.abs(actor.z - 9) < 1.5) {
-          clip = sim.phase === 'flight' ? 'backlift' : 'stance';
-          ct = sim.phase === 'flight' ? t - (sim.tRelease ?? t) : t;
+          // tapping the bat while the bowler runs in, the pick-up as he reaches the crease, the backlift at release
+          const toRelease = sim.phase === 'runup' ? sim.releaseDelay - (t - sim.tRunStart) : Infinity;
+          if (sim.phase === 'flight') { clip = 'backlift'; ct = t - (sim.tRelease ?? t); }
+          else if (toRelease <= TRIGGER_LEAD) { clip = 'trigger'; ct = TRIGGER_LEAD - toRelease; }
+          else { clip = 'stance'; ct = t; }
           yaw = Math.PI / 2;
-          if (clip === 'stance' || clip === 'backlift') { x = gx; z = STANCE_Z; shuffle = true; }
+          x = gx; z = STANCE_Z; shuffle = true;
         } else {
           clip = sim.phase === 'runup' && !isStriker ? 'backUp' : 'waitBat';
           ct = t;
