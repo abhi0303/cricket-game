@@ -12,7 +12,7 @@ import { HUD, renderOverlay, hideOverlay, pauseHTML, bowlerSelectHTML, inningsBr
 import { simulateBalls, chaseFinishReached } from './SkipSim.js';
 import { esc, toast, moveFocus, adjustFocused } from '../ui/UI.js';
 import { BATTING_VIEWS, BOWLING_VIEWS, viewEnd, normalizeBattingView, normalizeBowlingView } from '../scene/CameraPoses.js';
-import { applyBattingInput } from './BattingInput.js';
+import { applyBattingInput, SHOT_HINTS } from './BattingInput.js';
 
 const END_NAMES = ['Pavilion End', 'City End'];
 
@@ -429,12 +429,13 @@ export class MatchController {
       hud.meter(null);
       if (sim.phase === 'inplay') {
         const rs = sim.runState;
-        hud.hints(input, 'batting', [['run', rs === 'running' ? 'Another run' : 'Run'], ['cancelRun', 'Send back']]);
-        if (sim.control.running === 'user' && sim.ball.state !== 'held') hud.prompt(`${rs === 'running' ? `Running… ${sim.runsCompleted} done` : sim.runsCompleted ? `${sim.runsCompleted} run${sim.runsCompleted > 1 ? 's' : ''} — go again?` : 'Run?'} ${this.glyphs([['run', 'Run'], ['cancelRun', 'Back']], 'batting')}`);
+        hud.hints(input, 'batting', [['run', rs === 'running' ? 'Another run' : 'Run'], ['cancelRun', 'Send back'], ['sprint', 'Sprint (hold)'], ['dive', 'Dive for the crease']]);
+        const running = rs === 'running' || rs === 'returning';
+        if (sim.control.running === 'user' && sim.ball.state !== 'held') hud.prompt(`${rs === 'running' ? `Running… ${sim.runsCompleted} done` : rs === 'returning' ? 'Get back!' : sim.runsCompleted ? `${sim.runsCompleted} run${sim.runsCompleted > 1 ? 's' : ''} — go again?` : 'Run?'} ${this.glyphs(running ? [['sprint', 'Sprint'], ['dive', 'Dive'], ['cancelRun', 'Back']] : [['run', 'Run'], ['cancelRun', 'Back']], 'batting')}`);
         else hud.prompt(null);
       } else {
         hud.prompt(null);
-        hud.hints(input, 'batting', [[['moveLeft', 'moveRight'], 'Move across'], ['defend', 'Defend'], ['ground', 'Ground'], ['lofted', 'Lofted'], ['advanced', 'Sweep'], ['leave', 'Leave'], ['power', 'Power'], ['precision', 'Precision']]);
+        hud.hints(input, 'batting', SHOT_HINTS);
       }
     }
   }

@@ -392,6 +392,22 @@ const CLIPS = {
     p.armR = [-10, 0, -10]; p.foreR = [-20, 0, 0];
     p.bat = { H: [-0.25, 0.75, 0.15], T: [-0.3, 0.02, 0.2], F: [0, 0, 1] };
   }),
+  // Batter diving for the crease: launch, full-length slide with the bat stretched out and grounded ahead,
+  // then back up. (Character space: +z is the way they run; the bat isn't turned by the body roll.)
+  diveBat: keyed(1.35, [
+    [0, { thighL: [-40, 0, 3], thighR: [30, 0, -3], shinL: [40, 0, 0], shinR: [60, 0, 0], torso: [16, 0, 0], armR: [-60, 0, -12], foreR: [-40, 0, 0],
+      bat: { H: [-0.2, 0.95, 0.5], T: [-0.22, 0.75, 1.3], F: [-1, 0, 0] } }],
+    [0.16, { rootRot: [42, 0, 0], root: [0, -0.3, 0.3], torso: [14, 0, 0], head: [-30, 0, 0], armR: [-120, 0, -12], armL: [-110, 0, 14], foreR: [-15, 0, 0], foreL: [-20, 0, 0],
+      thighL: [10, 0, 4], thighR: [24, 0, -4], shinL: [30, 0, 0], shinR: [40, 0, 0], bat: { H: [-0.15, 0.6, 1.0], T: [-0.12, 0.3, 1.8], F: [0, 1, 0] } }],
+    [0.34, { rootRot: [80, 0, 0], root: [0, -0.74, 0.45], torso: [4, 0, 0], head: [-58, 0, 0], armR: [-168, 0, -10], armL: [-162, 0, 14], foreR: [-4, 0, 0], foreL: [-6, 0, 0],
+      thighL: [8, 0, 5], thighR: [16, 0, -5], shinL: [18, 0, 0], shinR: [26, 0, 0], bat: { H: [-0.12, 0.26, 1.2], T: [-0.08, 0.04, 2.02], F: [0, 1, 0] } }],
+    [0.85, { rootRot: [82, 0, 0], root: [0, -0.76, 0.45], torso: [2, 0, 0], head: [-50, 0, 0], armR: [-170, 0, -10], armL: [-165, 0, 14], foreR: [-4, 0, 0], foreL: [-6, 0, 0],
+      thighL: [6, 0, 5], thighR: [12, 0, -5], shinL: [14, 0, 0], shinR: [20, 0, 0], bat: { H: [-0.12, 0.24, 1.22], T: [-0.08, 0.03, 2.04], F: [0, 1, 0] } }],
+    [1.1, { rootRot: [35, 0, 0], root: [0, -0.48, 0.5], torso: [10, 0, 0], head: [-20, 0, 0], armR: [-60, 0, -14], armL: [-50, 0, 18], foreR: [-30, 0, 0], foreL: [-40, 0, 0],
+      thighL: [-85, 0, 8], shinL: [100, 0, 0], thighR: [-5, 0, -8], shinR: [95, 0, 0], bat: { H: [-0.2, 0.6, 0.7], T: [-0.15, 0.08, 1.4], F: [-1, 0, 0] } }],
+    [1.35, { torso: [4, 0, 0], armR: [-20, 0, -10], foreR: [-40, 0, 0], thighL: [-6, 0, 4], thighR: [-6, 0, -4], shinL: [10, 0, 0], shinR: [10, 0, 0],
+      bat: { H: [-0.25, 0.8, 0.3], T: [-0.3, 0.05, 0.42], F: [0, 0, 1] } }],
+  ]),
   celebrateBat: proc(1, (t, p) => {
     p.armR = [-170, 0, -15]; p.foreR = [-5, 0, 0]; p.armL = [-150 + S(t * 6) * 10, 0, 20];
     p.bat = { H: [-0.2, 2.0, 0.1], T: [-0.25, 2.85, 0.1], F: [0, 0, 1] };

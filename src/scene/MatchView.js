@@ -223,6 +223,7 @@ export class MatchView {
         let shuffle = false;
         if (actor.action === 'out') { clip = 'walkOff'; yaw = Math.PI / 2 + 0.6; x = actor.x - (actor.actionT * 0.6); }
         else if (actor.action === 'celebrate') { clip = 'celebrateBat'; yaw = 0; }
+        else if (actor.action === 'dive') { clip = 'diveBat'; ct = actor.actionT; yaw = actor.yaw ?? 0; }
         else if (running) { clip = 'runBat'; yaw = actor.yaw ?? 0; ct = t; }
         else if (isStriker && this.shotView && (sim.phase === 'flight' || t - this.shotView.t0 < 2.4) && Math.abs(actor.z - 9) < 2.2) {
           clip = this.shotView.clip; ct = (t - this.shotView.t0) * this.shotView.rate; yaw = Math.PI / 2;

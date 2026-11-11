@@ -6,8 +6,11 @@ export const END_Z = { striker: PITCH.half, nonStriker: -PITCH.half };
 export const CREASE_Z = { striker: PITCH.popping, nonStriker: -PITCH.popping };
 export const BAT_REACH = 0.85;
 
+/** In their ground at `end`: bat over the popping crease (further while diving), or grounded there by a dive. */
 export function isSafe(runner, end) {
-  return end === 'striker' ? runner.z >= CREASE_Z.striker - BAT_REACH : runner.z <= CREASE_Z.nonStriker + BAT_REACH;
+  if (runner.madeGround === end) return true;
+  const reach = runner.reach ?? BAT_REACH;
+  return end === 'striker' ? runner.z >= CREASE_Z.striker - reach : runner.z <= CREASE_Z.nonStriker + reach;
 }
 
 export function throwTime(from, end, throwSpeed) {

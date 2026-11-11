@@ -25,7 +25,7 @@ The cricket rules, squad validation, ball physics, AI, input handling and camera
 npm test          # node --test tests/*.test.js
 ```
 
-There are 119 tests. They cover every squad-composition rule, scoring and extras, strike rotation, over changes, wickets and the next batter, free hits, bowler over limits, target chasing and results. They also run full AI-vs-AI matches in all three formats (checking that runs, balls and wickets always add up), save/resume mid-match, skipping ahead (simulating an innings, stopping exactly at the final overs of a chase), moving across the crease (keys, reach, pads and stumps, wide calls), net practice (fixed and random speeds, the chosen length, line and delivery always bowled, the netting stopping the ball, and what each shot would be worth on the field), the bowling physics (all 10 speeds × 8 lengths, pitching inside the chosen range, bounce direction, travel and reaction times, identical results at 30/60/120 FPS, nothing passing through the bat, body or stumps), timing windows and shot selection, swing and spin direction, gamepad edge detection, dead zones and connect/disconnect, the batting and bowling camera positions (including the TV framing), the field chart's orientation and counts, and the batting animations (footwork, contact positions, the bat keeping its speed through the ball, high finishes).
+There are 126 tests. They cover every squad-composition rule, scoring and extras, strike rotation, over changes, wickets and the next batter, free hits, bowler over limits, target chasing and results. They also run full AI-vs-AI matches in all three formats (checking that runs, balls and wickets always add up), save/resume mid-match, skipping ahead (simulating an innings, stopping exactly at the final overs of a chase), moving across the crease (keys, reach, pads and stumps, wide calls), the controller layout and shot direction in every camera, sprinting and diving for the crease, net practice (fixed and random speeds, the chosen length, line and delivery always bowled, the netting stopping the ball, and what each shot would be worth on the field), the bowling physics (all 10 speeds × 8 lengths, pitching inside the chosen range, bounce direction, travel and reaction times, identical results at 30/60/120 FPS, nothing passing through the bat, body or stumps), timing windows and shot selection, swing and spin direction, gamepad edge detection, dead zones and connect/disconnect, the batting and bowling camera positions (including the TV framing), the field chart's orientation and counts, and the batting animations (footwork, contact positions, the bat keeping its speed through the ball, high finishes).
 
 ### Publishing on GitHub Pages
 
@@ -65,13 +65,23 @@ All-rounders must have a bowling type and don't count as full-time bowlers. The 
 |---|---|---|---|
 | Move across the crease | ← / → | D-pad ← / → | D-pad ← / → |
 | Shot direction / footwork | WASD (or ↑ ↓) | Left stick / D-pad ↑ ↓ | Left stick / D-pad ↑ ↓ |
-| Defensive block | J | A | ✕ |
-| Ground shot (drive, cut, pull, flick, punch) | K | X | □ |
+| Ground shot (drive, cut, pull, flick, punch) | K | A | ✕ |
 | Lofted shot (hook with stick back) | L | B | ○ |
-| Advanced: sweep | I | Y | △ |
-| Leave | U | RS click | R3 |
-| Power / Precision modifier (hold) | Shift / C | RT / LT | R2 / L2 |
-| Call run / send back | Space / Q | LB / RB | L1 / R1 |
+| Precision modifier (hold) | C | X | □ |
+| Leave | U | Y | △ |
+| Defensive block | J | RB | R1 |
+| Advanced: sweep | I | LB | L1 |
+| Power modifier (hold) | Shift | RT | R2 |
+| Call run | Space | X | □ |
+| Send back / cancel run | Q | B | ○ |
+| Sprint, both batters (hold) | Shift | RT or LT | R2 or L2 |
+| Dive for the crease | E | Y | △ |
+
+On a controller the face buttons do two jobs: while the ball is coming they play the shots (A ground, B lofted, X precision, Y leave); once it's in play they run (X run, B send back, Y dive). The triggers work the same way: RT is the power modifier for a shot, then RT or LT sprints. If you saved your own controller layout before this change, the batting buttons move to this layout once; your keyboard keys are kept.
+
+**Shot direction follows the picture.** Push the stick towards the bowler on screen for front-foot shots and away from him for back-foot shots. Behind the batter that's up and down; in the TV (bowler's end) and umpire views the picture is mirrored, so it's down and up, and left/right are swapped to match as well.
+
+**Sprint and dive.** Holding sprint makes both batters run about 12% faster and pick up speed quicker. Dive within about 4.5 m of the crease: the batter lunges full length with the bat grounded out in front, so the bat crosses the line roughly a tenth of a second sooner than running. Dive too early and you land short, then have to get up and run the rest, which usually costs you the run-out.
 
 **Moving across the crease:** before you play, hold **←** or **→** to shuffle across the crease towards that side of the screen. The batter side-steps there and the field chart shows where you are standing. You can move during the run-up and while the ball is in the air, until you play a shot. The next ball starts from your normal guard again.
 

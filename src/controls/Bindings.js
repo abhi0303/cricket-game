@@ -12,7 +12,7 @@ export const ACTION_LABELS = {
   up: 'Up', down: 'Down', left: 'Left', right: 'Right', confirm: 'Select', back: 'Back',
   defend: 'Defensive shot', ground: 'Ground shot', lofted: 'Lofted shot', advanced: 'Advanced shot (sweep)',
   leave: 'Leave the ball', moveLeft: 'Move across the crease (left)', moveRight: 'Move across the crease (right)', power: 'Power modifier', precision: 'Precision / timing modifier',
-  run: 'Call run', cancelRun: 'Send back / cancel run',
+  run: 'Call run', cancelRun: 'Send back / cancel run', dive: 'Dive to make your ground', sprint: 'Sprint (both batters, hold)',
   bowl: 'Bowl (hold, release on the meter)', typeNext: 'Next variation (swing / spin)', typePrev: 'Previous variation',
   speedUp: 'Faster delivery (km/h)', speedDown: 'Slower delivery (km/h)', lengthNext: 'Next length (yorker → bouncer)', lengthPrev: 'Previous length',
   throwKeeper: "Throw to keeper's end", throwBowler: "Throw to bowler's end", throwAuto: 'Throw: best end',
@@ -33,18 +33,22 @@ export const DEFAULT_BINDINGS = {
     confirm: { keys: [], pad: [PAD.A] }, // keyboard: Enter on the focused button (native)
     back: { keys: ['Escape', 'Backspace'], pad: [PAD.B] },
   },
+  // Controller: the face buttons play the shots while the ball is coming and run the batters once it's
+  // in play (A ground, B lofted / send back, X precision / run, Y leave / dive); RT/LT sprint.
   batting: {
     moveLeft: { keys: ['ArrowLeft'], pad: [PAD.LEFT] },
     moveRight: { keys: ['ArrowRight'], pad: [PAD.RIGHT] },
-    defend: { keys: ['KeyJ'], pad: [PAD.A] },
+    ground: { keys: ['KeyK'], pad: [PAD.A] },
     lofted: { keys: ['KeyL'], pad: [PAD.B] },
-    ground: { keys: ['KeyK'], pad: [PAD.X] },
-    advanced: { keys: ['KeyI'], pad: [PAD.Y] },
-    leave: { keys: ['KeyU'], pad: [PAD.RS] },
-    precision: { keys: ['KeyC'], pad: [PAD.LT] },
+    precision: { keys: ['KeyC'], pad: [PAD.X] },
+    leave: { keys: ['KeyU'], pad: [PAD.Y] },
+    defend: { keys: ['KeyJ'], pad: [PAD.RB] },
+    advanced: { keys: ['KeyI'], pad: [PAD.LB] },
     power: { keys: ['ShiftLeft', 'ShiftRight'], pad: [PAD.RT] },
-    run: { keys: ['Space'], pad: [PAD.LB] },
-    cancelRun: { keys: ['KeyQ'], pad: [PAD.RB] },
+    run: { keys: ['Space'], pad: [PAD.X] },
+    cancelRun: { keys: ['KeyQ'], pad: [PAD.B] },
+    dive: { keys: ['KeyE'], pad: [PAD.Y] },
+    sprint: { keys: ['ShiftLeft', 'ShiftRight'], pad: [PAD.RT, PAD.LT] },
     pause: { keys: ['Escape', 'KeyP'], pad: [PAD.START] },
     camera: { keys: ['KeyV'], pad: [PAD.BACK] },
   },
@@ -87,18 +91,29 @@ export const PROFILE_LABELS = { batting: 'Batting', bowling: 'Bowling', fielding
 
 export function cloneBindings(b = DEFAULT_BINDINGS) { return JSON.parse(JSON.stringify(b)); }
 
+// Saved bindings carry a layout version. Version 2 moved the batting shots and running onto the controller's
+// face buttons, so controller buttons saved under an older layout fall back to the new defaults (keys are kept).
+export const BINDINGS_VERSION = 2;
+const PAD_LAYOUT_CHANGED = { 2: ['batting'] };
+
 /** Merge saved bindings over the defaults (ignores unknown actions). */
 export function mergeBindings(saved) {
   const out = cloneBindings();
   if (!saved || typeof saved !== 'object') return out;
+  const v = Number(saved._v) || 1;
+  const resetPad = new Set(Object.entries(PAD_LAYOUT_CHANGED).filter(([ver]) => v < Number(ver)).flatMap(([, profs]) => profs));
   for (const [prof, acts] of Object.entries(out)) {
     for (const act of Object.keys(acts)) {
       const s = saved[prof]?.[act];
-      if (s && Array.isArray(s.keys) && Array.isArray(s.pad)) out[prof][act] = { keys: s.keys.slice(0, 3), pad: s.pad.filter(Number.isInteger).slice(0, 2) };
+      if (!s || !Array.isArray(s.keys) || !Array.isArray(s.pad)) continue;
+      out[prof][act] = { keys: s.keys.slice(0, 3), pad: resetPad.has(prof) ? out[prof][act].pad : s.pad.filter(Number.isInteger).slice(0, 2) };
     }
   }
   return out;
 }
+
+/** What to store: the bindings plus the layout version. */
+export function bindingsForSave(b) { return { ...b, _v: BINDINGS_VERSION }; }
 
 export function keyLabel(code) {
   if (!code) return '—';

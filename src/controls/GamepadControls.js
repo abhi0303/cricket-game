@@ -12,6 +12,9 @@ export function applyDeadzone(x, y, dz = DEADZONE) {
 
 export function padStyle(id = '') {
   const s = id.toLowerCase();
+  // Xbox pads first: the Xbox Series pad calls itself "Xbox Wireless Controller", which would otherwise
+  // match Sony's plain "Wireless Controller".
+  if (/xbox|xinput|045e/.test(s)) return 'xbox';
   if (/054c|playstation|dualshock|dualsense|wireless controller|ps4|ps5/.test(s)) return 'ps';
   return 'xbox';
 }

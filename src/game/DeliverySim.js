@@ -8,7 +8,7 @@ import { planDelivery, simulateBattedBall, launchVelocity, PITCH, BALL_R } from 
 import { resolveShot, contactZ, BATTER_X, STANCE_Z, SHOTS, GUARD, shotFromInput, describeShot } from './ShotModel.js';
 import { keeperPosition } from './FieldPlacements.js';
 import { chooseShot, sampleTimingError, runDecision, batterIntent, pickGap, assistAim } from '../ai/BattingAI.js';
-import { chooseThrowEnd, isSafe, END_Z, CREASE_Z } from '../ai/FieldingAI.js';
+import { chooseThrowEnd, isSafe, END_Z, CREASE_Z, BAT_REACH } from '../ai/FieldingAI.js';
 import { dismissalAllowed } from './CricketRules.js';
 import { diff } from './Difficulty.js';
 import { BOWLING_TYPES, bowlerKph } from './PlayerAttributes.js';
@@ -22,6 +22,11 @@ const RUNUP = {
 };
 const RUN_TO = { striker: 9.35, nonStriker: -9.35 };
 const MAX_INPLAY = 16;
+// Sprinting (the human batting side holds a trigger): a little more top speed and a quicker pick-up.
+export const SPRINT = { speed: 1.12, accel: 1.3 };
+// Diving for the crease: the batter lunges full length with the bat out in front, so the bat crosses the line
+// sooner than running would get it there. Dive too early and you land short and have to get up again.
+export const DIVE = { range: 4.5, stretch: 0.25, slide: 0.55, reach: 1.9, total: 1.35, lunge: 1.08 };
 
 const runnerSpeed = p => 5.9 + 1.6 * (p.fielding / 100);
 const FIELDER_ACCEL = 6;
@@ -101,6 +106,7 @@ export class DeliverySim {
     this.boundary = 0;
     this.runsCompleted = 0;
     this.runState = 'idle';     // idle | running | returning
+    this.sprint = false;        // human batting side holding the sprint trigger
     this.queuedRun = false;
     this.runTurnWait = 0;
     this.lastRunDecisionT = -1;
@@ -228,6 +234,50 @@ export class DeliverySim {
   inputRun(cmd) {
     if (this.control.running !== 'user') return;
     this.applyRunCommand(cmd);
+  }
+
+  /** Human batting side: hold to sprint (both batters). */
+  setSprint(on) { this.sprint = this.control.bat === 'user' && !!on; }
+
+  /** Human batting side: any batter running within range of the crease dives for it. Returns how many dived. */
+  inputDive() {
+    if (this.control.bat !== 'user' || this.phase !== 'inplay') return 0;
+    let n = 0;
+    for (const r of this.runners) {
+      if (!r.target || r.dive || r.arrived || r.madeGround === r.target || (r.v || 0) < 1.5) continue;
+      const safeZ = r.target === 'striker' ? CREASE_Z.striker - BAT_REACH : CREASE_Z.nonStriker + BAT_REACH;
+      const dist = r.target === 'striker' ? safeZ - r.z : r.z - safeZ;
+      if (dist <= 0 || dist > DIVE.range) continue;
+      r.dive = { t: 0, end: r.target, dir: r.target === 'striker' ? 1 : -1, v0: r.v * DIVE.lunge };
+      this.setAction(r, 'dive');
+      n++;
+    }
+    if (n) this.emit('dive', { count: n });
+    return n;
+  }
+
+  /** A batter in a dive: lunge and slide (slowing to a stop), the reach stretching out, then back up. */
+  updateDive(r, dt) {
+    const d = r.dive;
+    d.t += dt;
+    r.z += d.dir * d.v0 * Math.max(0, 1 - d.t / DIVE.slide) * dt;
+    r.reach = BAT_REACH + (DIVE.reach - BAT_REACH) * Math.min(1, d.t / DIVE.stretch);
+    r.v = 0;
+    if (r.madeGround !== d.end && isSafe(r, d.end)) {
+      r.madeGround = d.end;
+      if (r.target === d.end) r.arrived = true;
+      this.emit('diveSafe', { runner: r.id, end: d.end });
+    }
+    if (d.t >= DIVE.total) {
+      // On their feet again; a batter who made it gets up inside the crease.
+      r.dive = null;
+      r.reach = BAT_REACH;
+      if (r.madeGround === d.end) {
+        const safeZ = d.end === 'striker' ? CREASE_Z.striker - BAT_REACH + 0.05 : CREASE_Z.nonStriker + BAT_REACH - 0.05;
+        r.z = d.dir > 0 ? Math.max(r.z, safeZ) : Math.min(r.z, safeZ);
+      }
+      this.setAction(r, r.target ? 'run' : 'idle');
+    }
   }
 
   /** Human fielding side picks the throw end: 'striker' | 'nonStriker' | 'auto'. */
@@ -827,7 +877,7 @@ export class DeliverySim {
     if (cmd === 'run') {
       if (this.runState === 'idle') {
         if (this.ball.heldAtEnd && this.ball.state === 'held' && this.control.running === 'ai') return;
-        for (const r of this.runners) { r.target = r.end === 'striker' ? 'nonStriker' : 'striker'; r.arrived = false; }
+        for (const r of this.runners) { r.target = r.end === 'striker' ? 'nonStriker' : 'striker'; r.arrived = false; r.madeGround = null; }
         this.runState = 'running';
         this.runTurnWait = this.runsCompleted > 0 || this.queuedTurn ? 0.3 : 0.12;
         this.emit('runCall', { call: 'yes' });
@@ -839,7 +889,7 @@ export class DeliverySim {
       if (this.runState === 'running') {
         const crossed = this.runners.some(r => (r.target === 'nonStriker' ? r.z < 0 : r.z > 0));
         if (!crossed) {
-          for (const r of this.runners) r.target = r.end;
+          for (const r of this.runners) { r.target = r.end; r.madeGround = null; }
           this.runState = 'returning';
           this.emit('runCall', { call: 'no' });
         }
@@ -849,10 +899,14 @@ export class DeliverySim {
 
   updateRunners(dt) {
     if (this.runTurnWait > 0) { this.runTurnWait -= dt; }
+    const boost = this.sprint ? SPRINT : { speed: 1, accel: 1 };
     for (const r of this.runners) {
+      if (r.dive) { this.updateDive(r, dt); continue; }
+      // Grounded at the far end by a dive: in, waiting for the partner.
+      if (r.target && r.madeGround === r.target) { r.arrived = true; r.v = 0; if (r.action === 'run') this.setAction(r, 'idle'); continue; }
       if (r.target && this.runTurnWait <= 0) {
         const goal = RUN_TO[r.target];
-        r.v = Math.min(r.speed, r.v + 7 * dt);
+        r.v = Math.min(r.speed * boost.speed, r.v + 7 * boost.accel * dt);
         const dz = goal - r.z;
         const step = Math.sign(dz) * Math.min(Math.abs(dz), r.v * dt);
         r.z += step;

@@ -451,11 +451,11 @@ const TUTORIAL = {
   batting: `<ol>
     <li>The camera sits behind you at the striker's end. Watch the bowler run in from the far end.</li>
     <li><b>Move across the crease:</b> hold <i>←</i> / <i>→</i> (D-pad left/right) before you play to shuffle towards that side of the screen. Across to off reaches wide balls and gets you in line, but your pads cover the stumps (LBW). Backing away to leg gives you room, but exposes the stumps.</li>
-    <li><b>Direction:</b> push the stick (or WASD) <i>up</i> for front-foot shots, <i>down</i> for back-foot shots, <i>right</i> for the off side and <i>left</i> for the leg side. A green arrow shows your aim.</li>
+    <li><b>Direction:</b> the stick (or WASD) works the way the picture looks. Push <i>towards the bowler</i> for front-foot shots and <i>away from him</i> for back-foot shots: up and down from behind the batter, down and up in the TV (bowler's end) view. Left and right follow the screen too. A green arrow shows your aim.</li>
     <li><b>Pick a shot that suits the ball:</b> drive full balls (front foot), cut or pull short balls (back foot), sweep spinners, leave wide ones. A white ring shows where the ball pitched.</li>
     <li><b>Timing:</b> press the shot button just before the ball reaches you. The timing bar shows Early / Good / Perfect / Late. Perfect timing doesn't guarantee a six — the shot, the line and length, your player's skill and the field all matter.</li>
     <li>Hold <b>power</b> for extra distance (riskier), hold <b>precision</b> for a wider timing window and fewer edges.</li>
-    <li><b>Run:</b> press Call Run once per run (press again during a run to come back for another), Send Back to turn around.</li>
+    <li><b>Run:</b> press Call Run once per run (press again during a run to come back for another), Send Back to turn around. Hold <b>Sprint</b> (RT or LT) to run both batters a little faster. Press <b>Dive</b> (Y) near the crease to stretch for it: the bat gets there sooner, but dive too early and you land short and must get up again.</li>
     <li><b>Practise in the nets:</b> Net Practice on the main menu lets you face any bowler (type, fixed or random speed, length, line, variation) for as long as you like, with your timing and the value of every shot shown.</li>
   </ol>`,
   bowling: `<ol>

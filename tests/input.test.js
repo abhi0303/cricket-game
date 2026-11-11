@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { InputManager } from '../src/controls/InputManager.js';
 import { KeyboardControls } from '../src/controls/KeyboardControls.js';
 import { GamepadControls, applyDeadzone, padStyle } from '../src/controls/GamepadControls.js';
-import { mergeBindings, PAD } from '../src/controls/Bindings.js';
+import { mergeBindings, PAD, BINDINGS_VERSION } from '../src/controls/Bindings.js';
 
 globalThis.performance ??= { now: () => Date.now() };
 
@@ -47,7 +47,7 @@ test('profiles map the same button to different actions', () => {
   const { input } = setup([pad]);
   pad.buttons[PAD.A] = { pressed: true, value: 1 };
   input.setProfile('batting'); input.update();
-  assert.equal(input.down('defend'), true);
+  assert.equal(input.down('ground'), true);
   input.setProfile('bowling'); input.update();
   assert.equal(input.down('bowl'), true);
   input.setProfile('fielding'); input.update();
@@ -108,10 +108,13 @@ test('controller connect and disconnect are detected and keyboard still works', 
 test('controller style detection', () => {
   assert.equal(padStyle('Xbox 360 Controller (XInput STANDARD GAMEPAD)'), 'xbox');
   assert.equal(padStyle('Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 09cc)'), 'ps');
+  assert.equal(padStyle('Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)'), 'xbox', 'Xbox Series pad');
+  assert.equal(padStyle('Xbox Wireless Controller'), 'xbox');
+  assert.equal(padStyle('DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)'), 'ps');
 });
 
 test('saved bindings override defaults and bad data is ignored', () => {
-  const b = mergeBindings({ batting: { defend: { keys: ['KeyF'], pad: [3] }, bogus: { keys: ['X'], pad: [] } }, nope: 1 });
+  const b = mergeBindings({ _v: BINDINGS_VERSION, batting: { defend: { keys: ['KeyF'], pad: [3] }, bogus: { keys: ['X'], pad: [] } }, nope: 1 });
   assert.deepEqual(b.batting.defend, { keys: ['KeyF'], pad: [3] });
   assert.equal(b.batting.bogus, undefined);
   assert.deepEqual(b.batting.lofted.keys, ['KeyL']);

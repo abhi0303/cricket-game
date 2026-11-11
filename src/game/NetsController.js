@@ -6,7 +6,7 @@ import { NetsDeliverySim } from './NetsSim.js';
 import {
   normalizeNetsConfig, netBowler, netSpec, netOutcome, emptyNetStats, addNetBall, netsLabel, NETS_TEAM, NET_LINES, NET_DIFFICULTY,
 } from './NetsConfig.js';
-import { applyBattingInput } from './BattingInput.js';
+import { applyBattingInput, SHOT_HINTS } from './BattingInput.js';
 import { deliveryTypesFor } from './BallPhysics.js';
 import { lengthDef } from './PhysicsConfig.js';
 import { BOWLING_TYPES } from './PlayerAttributes.js';
@@ -205,7 +205,7 @@ export class NetsController {
     if (this.timingShownAt >= 0 && sim.t - this.timingShownAt > 2.2) { hud.timing(null); this.timingShownAt = -1; }
     if (this.state === 'replay') hud.hints(input, 'between', [['continue', 'Skip replay']]);
     else if (this.state === 'between') hud.hints(input, 'between', [['continue', 'Next ball'], ['replay', 'Replay'], ['pause', 'Change bowler']]);
-    else hud.hints(input, 'batting', [[['moveLeft', 'moveRight'], 'Move across'], ['defend', 'Defend'], ['ground', 'Ground'], ['lofted', 'Lofted'], ['advanced', 'Sweep'], ['leave', 'Leave'], ['power', 'Power'], ['precision', 'Precision'], ['pause', 'Change bowler']]);
+    else hud.hints(input, 'batting', [...SHOT_HINTS, ['pause', 'Change bowler']]);
   }
 
   // ------------------------------------------------------------------ overlays

@@ -10,7 +10,7 @@ import { CPU_TEAMS } from './NameGenerator.js';
 import { Storage, DEFAULT_SETTINGS } from '../utils/Storage.js';
 import { RNG } from '../utils/Random.js';
 import { DemoController } from './DemoController.js';
-import { ACTION_LABELS } from '../controls/Bindings.js';
+import { ACTION_LABELS, bindingsForSave } from '../controls/Bindings.js';
 
 export class GameManager {
   constructor(deps) {
@@ -56,7 +56,7 @@ export class GameManager {
     this.sound.setEnabled(this.settings.sound);
     this.sound.setVolume(this.settings.volume);
   }
-  saveBindings() { Storage.set('bindings', this.input.bindings); }
+  saveBindings() { Storage.set('bindings', bindingsForSave(this.input.bindings)); }
 
   saveMatch(engine) {
     Storage.set('match', { engine: engine.toJSON(), savedAt: Date.now() });
@@ -256,7 +256,7 @@ export class GameManager {
     const row = (p, a) => `<tr><td>${esc(ACTION_LABELS[a])}</td><td>${glyph(this.input, a, p)}</td></tr>`;
     return `<h2>Controls</h2><div class="grid2"><div><h3>Batting</h3><table class="binds">
       <tr><td>Direction / footwork</td><td><span class="glyph key">WASD</span> / stick</td></tr>
-      ${['defend', 'ground', 'lofted', 'advanced', 'leave', 'power', 'precision', 'run', 'cancelRun'].map(a => row('batting', a)).join('')}</table></div>
+      ${['ground', 'lofted', 'defend', 'advanced', 'leave', 'power', 'precision', 'run', 'cancelRun', 'sprint', 'dive'].map(a => row('batting', a)).join('')}</table></div>
       <div><h3>Bowling</h3><table class="binds"><tr><td>Aim line &amp; length</td><td><span class="glyph key">WASD</span> / stick</td></tr>
       ${['bowl', 'typeNext', 'typePrev', 'power'].map(a => row('bowling', a)).join('')}</table>
       <h3>Fielding</h3><table class="binds">${['throwKeeper', 'throwBowler', 'throwAuto'].map(a => row('fielding', a)).join('')}</table></div></div>
