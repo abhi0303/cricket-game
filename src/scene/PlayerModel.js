@@ -9,6 +9,7 @@ import { jerseyBackTexture, emblemTexture } from './Textures.js';
 import { BONES, PARENT, OFFSET, LIMB, HIP_HEIGHT, buildBody, buildHelmet, buildCap, buildUmpireHat, buildBatHandle, buildBatBlade, shade } from './CharacterGeometry.js';
 import { ballMaterial, setBallEnvironment, registerBall } from './BallLook.js';
 import { loadBody, RiggedBody } from './RiggedBody.js';
+import { loadGear } from './GearModels.js';
 import { bladeMaterial, batBrandFor, setBatEnvironment } from './BatLook.js';
 
 const DEG = Math.PI / 180;
@@ -153,6 +154,13 @@ export class PlayerModel {
       const blade = new THREE.Mesh(cached(`batblade:${q}`, () => buildBatBlade(q)), bladeMaterial(this.batBrand, quality === 'low' ? 'low' : 'high'));
       for (const m of [handle, blade]) { m.castShadow = o.shadows !== false; this.bat.add(m); }
       this.root.add(this.bat);
+      // the 3D bat model takes over from the built-in one once it has loaded (same frame: handle top at the origin)
+      loadGear('bat').then(scene => {
+        handle.visible = blade.visible = false;
+        const model = scene.clone();
+        model.traverse(m => { if (m.isMesh) m.castShadow = o.shadows !== false; });
+        this.bat.add(model);
+      }).catch(err => console.warn('Bat model not loaded; keeping the built-in bat.', err));
     }
     // --- ball in the bowling hand
     this.ball = new THREE.Mesh(ballGeo, ballMaterial());
@@ -198,7 +206,7 @@ export class PlayerModel {
     this.bodyName = name;
     loadBody(name).then(t => {
       if (this.bodyName !== name || this.body) return;
-      this.body = new RiggedBody(t, this);
+      this.body = new RiggedBody(t, this, { pads: !!this.bat });   // batters wear pads
       // the built-in body stops drawing (its skeleton still animates, and the ball in the hand still shows)
       this.mesh.material = HIDDEN;
       for (const o of [this.helmet, this.cap, this.hat, this.backPlate, this.badge]) if (o) o.visible = false;

@@ -13,6 +13,12 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { OFFSET, PARENT, LIMB, HIP_HEIGHT } from './CharacterGeometry.js';
+import { loadGear, mirrored } from './GearModels.js';
+
+// Leg pads on a batter: sized to his shin (knee to ankle): from a little over the top of the foot to the knee roll
+// about 18 cm above the knee. length and below (how far it reaches under the ankle) are in shin lengths; girth
+// narrows the width and depth a little for the slim players.
+const PAD = { length: 1.6, below: 0.12, girth: 0.88, ahead: 0.05 };   // ahead: off the shin, so a bent knee stays inside
 
 // Colours a kit swap looks for in a texture.
 const CLASS = {
@@ -129,8 +135,8 @@ function findBone(scene, name) {
 function rootQuat(o, rootInvQ, out) { return out.copy(rootInvQ).multiply(o.getWorldQuaternion(_q2)); }
 
 export class RiggedBody {
-  /** template: from loadBody(); model: the PlayerModel that wears it. */
-  constructor(template, model) {
+  /** template: from loadBody(); model: the PlayerModel that wears it; pads: put leg pads on him (batters). */
+  constructor(template, model, { pads = false } = {}) {
     this.model = model;
     this.scene = cloneSkinned(template.scene);
     this.bones = {};
@@ -217,6 +223,40 @@ export class RiggedBody {
     };
     this.tq = {};
     for (const b of ORDER) this.tq[b] = new THREE.Quaternion();
+    if (pads) this.addPads();
+  }
+
+  /**
+   * Leg pads, one on each shin bone so they go with the leg. Placed now, in the bind pose (legs straight, facing the
+   * player's forward): along the shin, face forward, wrapped round it; the right one is the left one mirrored.
+   */
+  addPads() {
+    const root = this.model.root;
+    root.updateMatrixWorld(true);
+    const fwd = new THREE.Vector3(0, 0, 1).transformDirection(root.matrixWorld);
+    const place = {};
+    for (const side of ['L', 'R']) {
+      const shin = this.bones['shin' + side], foot = this.bones['foot' + side];
+      const knee = shin.getWorldPosition(new THREE.Vector3()), ankle = foot.getWorldPosition(new THREE.Vector3());
+      const len = knee.distanceTo(ankle);
+      const up = knee.clone().sub(ankle).normalize();
+      const z = fwd.clone().addScaledVector(up, -fwd.dot(up)).normalize();
+      const x = new THREE.Vector3().crossVectors(up, z);
+      const s = len * PAD.length;
+      const world = new THREE.Matrix4().makeBasis(x, up, z).scale(new THREE.Vector3(s * PAD.girth, s, s * PAD.girth));
+      world.setPosition(ankle.clone().addScaledVector(up, -len * PAD.below).addScaledVector(z, len * PAD.ahead));
+      place[side] = new THREE.Matrix4().copy(shin.matrixWorld).invert().multiply(world);   // in the shin bone's frame
+    }
+    loadGear('pad').then(scene => {
+      for (const side of ['L', 'R']) {
+        const pad = side === 'L' ? scene.clone() : mirrored(scene);
+        pad.matrixAutoUpdate = false;
+        pad.matrix.copy(place[side]);
+        pad.name = 'pad' + side;
+        this.bones['shin' + side].add(pad);
+      }
+      this.container.updateMatrixWorld(true);
+    }).catch(err => console.warn('Pads not loaded.', err));
   }
 
   /** Set a bone's rotation to a world-space target (its parent's world matrix must be up to date). */

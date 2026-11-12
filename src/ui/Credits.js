@@ -16,6 +16,14 @@ export const CREDITS = [
     url: 'https://sketchfab.com/3d-models/stylized-cricketer-8bb84d0f58dd4dac9d85d3a2e02c176b', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
   },
   {
+    what: 'Bat', title: 'Cricket BAT 3D model SS', author: 'knitro_vedant', authorUrl: 'https://sketchfab.com/knitro_vedant',
+    url: 'https://sketchfab.com/3d-models/cricket-bat-3d-model-ss-757ec245077b4957820ad84ee746ecd6', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
+  },
+  {
+    what: 'Pads', title: 'cricket leg ped', author: 'arogeek', authorUrl: 'https://sketchfab.com/arogeek',
+    url: 'https://sketchfab.com/3d-models/cricket-leg-ped-42f912de462d4522828ae04ca2363757', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
+  },
+  {
     what: 'Stadium', title: 'Cricket stadium', author: 'Hassnain_ALy', authorUrl: 'https://sketchfab.com/Hassnain_ALy',
     url: 'https://sketchfab.com/3d-models/cricket-stadium-b4b9964dacc9444e8a265a81fca22afb', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
   },

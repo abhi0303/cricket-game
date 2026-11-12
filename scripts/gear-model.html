@@ -1,0 +1,151 @@
+<!doctype html>
+<!--
+  Batting gear builder. Turns two downloads into what the game loads (assets/models/gear/):
+    bat.glb   "Cricket BAT 3D model SS" by knitro_vedant (CC-BY-4.0; models-src/low_size_bat), in the game's bat frame:
+              the top of the handle at the origin, the blade down -y to the toe at -0.85 m (the game's bat length),
+              the face towards +z, the handle on the y axis
+    pad.glb   one pad from "cricket leg ped" by arogeek (CC-BY-4.0; models-src/cricket_leg_ped, a pair): the shell, its
+              straps and buckles, standing up (+y) with the face towards +z, 1 unit tall from the bottom of the instep
+              flap (y = 0) to the top of the knee roll (y = 1), centred on the leg it wraps round (the leg's axis is the
+              y axis). The game sizes it to each batter's shin and mirrors it for the other leg.
+  Open from a local server at the repo root; ?pad=0|1 picks which pad of the pair.
+-->
+<meta charset="utf-8">
+<title>Batting gear</title>
+<style>body { background: #1c1f24; color: #cfd6e0; font: 14px system-ui, sans-serif; margin: 12px; } canvas { width: 1200px; height: 500px; }</style>
+<p id="info">Building…</p>
+<canvas id="view" width="2400" height="1000"></canvas>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+const BAT_LEN = 0.85;
+const q = new URLSearchParams(location.search);
+const PAD = Number(q.get('pad') || 1);   // the pad whose straps lie flat round the back
+const stats = {};
+const baked = m => { const g = m.geometry.clone().applyMatrix4(m.matrixWorld); for (const n of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(n)) g.deleteAttribute(n); return g; };
+
+// ---------------------------------------------------------------- bat
+const batSrc = await new GLTFLoader().loadAsync('/models-src/low_size_bat/scene.gltf');
+batSrc.scene.updateMatrixWorld(true);
+let batMesh = null; batSrc.scene.traverse(o => { if (o.isMesh) batMesh = o; });
+const bg = baked(batMesh);
+bg.computeBoundingBox();
+const top = bg.boundingBox.max.y, len = top - bg.boundingBox.min.y;
+// the handle's axis: the middle of the vertices in the top fifth
+const hp = bg.attributes.position;
+let hx = 0, hz = 0, hn = 0;
+for (let i = 0; i < hp.count; i++) if (hp.getY(i) > top - len * 0.2) { hx += hp.getX(i); hz += hp.getZ(i); hn++; }
+hx /= hn; hz /= hn;
+const sb = BAT_LEN / len;
+// the model's flat face looks along -x (the SS stickers on its +x side are on the back, the spine): turn the face to +z
+bg.applyMatrix4(new THREE.Matrix4().makeRotationY(Math.PI / 2).multiply(new THREE.Matrix4().makeScale(sb, sb, sb)).multiply(new THREE.Matrix4().makeTranslation(-hx, -top, -hz)));
+bg.computeBoundingBox();
+// which side is the flat face: across the sweet spot, the flat side is as wide at its surface as the blade; the back
+// rises to a ridge (the spine)
+{
+  const p = bg.attributes.position, sl = [];
+  for (let i = 0; i < p.count; i++) if (Math.abs(p.getY(i) + 0.62) < 0.05) sl.push([p.getX(i), p.getZ(i)]);
+  const zs = sl.map(v => v[1]), z0 = Math.min(...zs), z1 = Math.max(...zs);
+  const span = f => { const xs = sl.filter(v => f(v[1])).map(v => v[0]); return xs.length ? +(Math.max(...xs) - Math.min(...xs)).toFixed(3) : 0; };
+  stats.batSection = { z: [+z0.toFixed(3), +z1.toFixed(3)], widthNearMinusZ: span(z => z < z0 + 0.012), widthNearPlusZ: span(z => z > z1 - 0.012) };
+}
+stats.bat = { len: +len.toFixed(3), scale: +sb.toFixed(4), box: [bg.boundingBox.min.toArray().map(v => +v.toFixed(3)), bg.boundingBox.max.toArray().map(v => +v.toFixed(3))], verts: bg.attributes.position.count };
+const batMat = batMesh.material.clone(); batMat.name = 'bat';
+if (batMat.map) batMat.map.userData.mimeType = 'image/jpeg';
+const bat = new THREE.Mesh(bg, batMat); bat.name = 'bat';
+
+// ---------------------------------------------------------------- pad
+const padSrc = await new GLTFLoader().loadAsync('/models-src/cricket_leg_ped/scene.gltf');
+padSrc.scene.updateMatrixWorld(true);
+const parts = [];
+padSrc.scene.traverse(o => { if (o.isMesh) parts.push(o); });
+const shells = parts.filter(m => m.material.map).sort((a, b) => a.geometry.attributes.position.count - b.geometry.attributes.position.count).slice(-2);
+const shellG = shells.map(baked);
+const centroid = g => { const p = g.attributes.position, c = new THREE.Vector3(); for (let i = 0; i < p.count; i++) c.add(new THREE.Vector3().fromBufferAttribute(p, i)); return c.divideScalar(p.count); };
+const minDist = (c, g) => { const p = g.attributes.position, v = new THREE.Vector3(); let d = Infinity; for (let i = 0; i < p.count; i += 3) d = Math.min(d, v.fromBufferAttribute(p, i).distanceTo(c)); return d; };
+// every part goes with the shell it's closest to
+const groups = [[], []];
+for (const m of parts) {
+  const g = baked(m);
+  const k = shells.indexOf(m) >= 0 ? shells.indexOf(m) : (minDist(centroid(g), shellG[0]) <= minDist(centroid(g), shellG[1]) ? 0 : 1);
+  groups[k].push({ g, mat: m.material });
+}
+const pad = groups[PAD], shell = shellG[PAD];
+// Stand it up: the shell's longest direction (it may lean a little in the file) becomes +y.
+const pts = []; { const p = shell.attributes.position; for (let i = 0; i < p.count; i++) pts.push(new THREE.Vector3().fromBufferAttribute(p, i)); }
+const mean = pts.reduce((c, v) => c.add(v), new THREE.Vector3()).divideScalar(pts.length);
+const C = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+for (const v of pts) { const d = [v.x - mean.x, v.y - mean.y, v.z - mean.z]; for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) C[i][j] += d[i] * d[j]; }
+let axis = new THREE.Vector3(0, 1, 0);
+for (let it = 0; it < 60; it++) { const v = axis.toArray(); axis = new THREE.Vector3(...[0, 1, 2].map(i => C[i][0] * v[0] + C[i][1] * v[1] + C[i][2] * v[2])).normalize(); }
+if (axis.y < 0) axis.negate();
+const R1 = new THREE.Matrix4().makeRotationFromQuaternion(new THREE.Quaternion().setFromUnitVectors(axis, new THREE.Vector3(0, 1, 0)));
+// Face forward: the straps are round the back, so the face is the side of the shell away from them.
+const strapC = new THREE.Vector3(); let sn = 0;
+for (const { g, mat } of pad) if (!mat.map && mat.metalness < 0.5) { const c = centroid(g); strapC.add(c); sn++; }
+strapC.divideScalar(sn);
+const dir = mean.clone().sub(strapC).applyMatrix4(new THREE.Matrix4().extractRotation(R1));
+const face = Math.atan2(dir.x, dir.z);
+const R = new THREE.Matrix4().makeRotationY(-face).multiply(R1);
+// The leg: across the middle of the pad's width, a shin's radius behind its inner (back) surface at mid-height.
+const up = pts.map(v => v.clone().sub(mean).applyMatrix4(R));
+const ys = up.map(v => v.y), y0 = Math.min(...ys), y1 = Math.max(...ys), H = y1 - y0;
+const mid = up.filter(v => Math.abs(v.y - (y0 + H * 0.45)) < H * 0.06);
+const xs = mid.map(v => v.x), xc = (Math.min(...xs) + Math.max(...xs)) / 2, wid = Math.max(...xs) - Math.min(...xs);
+const inner = Math.min(...mid.filter(v => Math.abs(v.x - xc) < wid * 0.12).map(v => v.z));
+const SHIN = 0.075;     // shin radius, as a share of the pad's height (about 5 cm on a 70 cm pad)
+const legZ = inner - SHIN * H;
+const sp2 = 1 / H;
+const T = new THREE.Matrix4().makeScale(sp2, sp2, sp2)
+  .multiply(new THREE.Matrix4().makeTranslation(-xc, -y0, -legZ))
+  .multiply(R)
+  .multiply(new THREE.Matrix4().makeTranslation(-mean.x, -mean.y, -mean.z));
+const rad = SHIN * H;
+const padRoot = new THREE.Group(); padRoot.name = 'pad';
+const byMat = new Map();
+for (const { g, mat } of pad) {
+  g.applyMatrix4(T);
+  if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+  if (!byMat.has(mat.name)) byMat.set(mat.name, { mat, geos: [] });
+  byMat.get(mat.name).geos.push(g.index ? g : g);
+}
+for (const [name, { mat, geos }] of byMat) {
+  const m = mat.clone(); m.name = name;
+  if (m.map) { m.map.userData.mimeType = 'image/jpeg'; }
+  const mesh = new THREE.Mesh(mergeGeometries(geos), m); mesh.name = name.replace(/[^A-Za-z0-9]+/g, '_');
+  padRoot.add(mesh);
+}
+const pb = new THREE.Box3().setFromObject(padRoot);
+stats.pad = { which: PAD, parts: pad.length, lean: +(Math.acos(axis.y) * 180 / Math.PI).toFixed(1), faceDeg: +(face * 180 / Math.PI).toFixed(1), widthOfHeight: +(wid / H).toFixed(3), box: [pb.min.toArray().map(v => +v.toFixed(3)), pb.max.toArray().map(v => +v.toFixed(3))] };
+
+const exp = new GLTFExporter();
+const enc = async o => btoa(Array.from(new Uint8Array(await exp.parseAsync(o, { binary: true })), c => String.fromCharCode(c)).join(''));
+const batB64 = await enc(bat), padB64 = await enc(padRoot);
+stats.kb = { bat: Math.round(batB64.length * 0.75 / 1024), pad: Math.round(padB64.length * 0.75 / 1024) };
+
+// preview: the pad from the front, the side and above (the leg's axis drawn), and the bat face-on and side-on
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('view'), antialias: true });
+r.outputColorSpace = THREE.SRGBColorSpace;
+const show = new THREE.Scene(); show.background = new THREE.Color('#d8d8d8');
+show.add(new THREE.HemisphereLight('#fff', '#777', 2)); const sun = new THREE.DirectionalLight('#fff', 2); sun.position.set(2, 4, 5); show.add(sun);
+const legLine = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 1.2, 8), new THREE.MeshBasicMaterial({ color: '#e00' })); legLine.position.y = 0.5;
+const padView = new THREE.Group(); padView.add(padRoot, legLine);
+const batView = bat.clone(); batView.scale.setScalar(1 / BAT_LEN); batView.position.y = 1.0;
+const cam = new THREE.PerspectiveCamera(30, 0.48, 0.01, 50);
+r.setScissorTest(true);
+const shots = [[padView, [0, 0.5, 3.2], [0, 0.5, 0]], [padView, [3.2, 0.5, 0], [0, 0.5, 0]], [padView, [0.01, 3.4, 0], [0, 0.5, 0]], [batView, [0, 0.5, 3.2], [0, 0.5, 0]], [batView, [3.2, 0.5, 0], [0, 0.5, 0]]];
+shots.forEach(([o, p, t], i) => {
+  show.add(o);
+  cam.position.set(...p); cam.lookAt(...t); cam.updateProjectionMatrix();
+  r.setViewport(i * 480, 0, 480, 1000); r.setScissor(i * 480, 0, 480, 1000); r.render(show, cam);
+  show.remove(o);
+});
+document.getElementById('info').textContent = JSON.stringify(stats);
+window.__gear = { bat: batB64, pad: padB64, stats, done: true };
+</script>
