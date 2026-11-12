@@ -206,7 +206,7 @@ export class PlayerModel {
     this.bodyName = name;
     loadBody(name).then(t => {
       if (this.bodyName !== name || this.body) return;
-      this.body = new RiggedBody(t, this, { pads: !!this.bat });   // batters wear pads
+      this.body = new RiggedBody(t, this, { batter: !!this.bat });   // batters wear pads and grip the bat
       // the built-in body stops drawing (its skeleton still animates, and the ball in the hand still shows)
       this.mesh.material = HIDDEN;
       for (const o of [this.helmet, this.cap, this.hat, this.backPlate, this.badge]) if (o) o.visible = false;
@@ -231,6 +231,7 @@ export class PlayerModel {
       this.blendDur = blendDur;
     }
     clip.sample(t, this.tmpPose);
+    this.clipT = t;
     if (this.batAim && this.batAim.clip === name) this.aimBat(this.tmpPose, t);
     if (this.blend < 1) {
       this.blend = Math.min(1, this.blend + dt / Math.max(0.01, this.blendDur));
@@ -429,7 +430,14 @@ export class PlayerModel {
     if (this.bat) {
       if (p.bat) {
         this.bat.visible = true;
-        this.placeBat(this.fitBat(p.bat));
+        const fit = this.fitBat(p.bat);
+        // out of the pads; in a shot not around the contact, where the swing is aimed at the ball
+        if (this.padShape) {
+          const shot = this.clip && this.clip.startsWith('shot_');
+          const w = shot ? Math.min(1, Math.max(0, (Math.abs((this.clipT ?? 1) - CONTACT_T) - 0.05) / 0.1)) : 1;
+          if (w > 0) this.keepBatOffPads(fit, w);
+        }
+        this.placeBat(fit);
         this.root.updateMatrixWorld(true);
         this.solveHandsOnBat(p.poleL, p.poleR);
       } else this.bat.visible = false;
@@ -481,6 +489,49 @@ export class PlayerModel {
     this._fit = this._fit || { H: [0, 0, 0], T: [0, 0, 0], F: [0, 0, 1] };
     H.toArray(this._fit.H); T.toArray(this._fit.T); this._fit.F = bat.F;
     return this._fit;
+  }
+
+  /**
+   * Keep the blade out of the leg pads: each pad is a box round its shin (padShape, in shin lengths: half its width,
+   * how far it reaches in front of and behind the shin, below the ankle and above it). If the blade (a little
+   * thickened) is inside one, the bat is moved out the shortest way, preferring in front of the pad; the hands go
+   * with it.
+   */
+  keepBatOffPads(fit, weight = 1) {
+    const ps = this.padShape, root = this.root;
+    const H = _k1.fromArray(fit.H), T = _k2.fromArray(fit.T);
+    const yAx = _k3.copy(H).sub(T).normalize();
+    const shift = _k4.set(0, 0, 0), margin = 0.035;
+    for (let pass = 0; pass < 2; pass++) {
+      for (const side of ['L', 'R']) {
+        const ankle = root.worldToLocal(this.b['foot' + side].getWorldPosition(_k5));
+        const knee = root.worldToLocal(this.b['shin' + side].getWorldPosition(_k6));
+        const len = knee.distanceTo(ankle), up = _k7.copy(knee).sub(ankle).normalize();
+        const fwd = _k8.set(0, 0, 1); fwd.addScaledVector(up, -fwd.dot(up)).normalize();
+        const x = _k9.crossVectors(up, fwd);
+        const need = { front: 0, back: 0, left: 0, right: 0 };
+        let hit = false;
+        for (let i = 0; i <= 8; i++) {
+          const p = _k10.copy(T).addScaledVector(yAx, 0.56 * i / 8).add(shift).sub(ankle);   // toe to the shoulder of the blade
+          const py = p.dot(up), px = p.dot(x), pz = p.dot(fwd);
+          if (py < -ps.below * len || py > ps.top * len) continue;
+          const half = ps.half * len + margin, front = ps.front * len + margin, back = ps.back * len - margin;
+          if (Math.abs(px) >= half || pz >= front || pz <= back) continue;
+          hit = true;
+          need.front = Math.max(need.front, front - pz); need.back = Math.max(need.back, pz - back);
+          need.left = Math.max(need.left, half - px); need.right = Math.max(need.right, px + half);
+        }
+        if (!hit) continue;
+        const best = [['front', fwd, 1, 1], ['back', fwd, -1, 1.6], ['left', x, 1, 1.25], ['right', x, -1, 1.25]]
+          .map(([k, v, s, bias]) => ({ k, v, s, cost: need[k] * bias })).sort((a, b) => a.cost - b.cost)[0];
+        shift.addScaledVector(best.v, best.s * need[best.k]);
+      }
+    }
+    if (shift.lengthSq() === 0) return;
+    shift.multiplyScalar(weight);
+    const toeY = T.y + shift.y;
+    if (toeY < 0.012) shift.y += 0.012 - toeY;   // and never into the turf
+    for (const k of ['H', 'T']) for (let i = 0; i < 3; i++) fit[k][i] += shift.getComponent(i);
   }
 
   placeBat({ H, T, F }) {
@@ -595,6 +646,8 @@ const _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _m3 = new THREE.Matr
 const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _qM = new THREE.Quaternion(), _qT = new THREE.Quaternion(), _qS = new THREE.Quaternion(), _qF = new THREE.Quaternion();
 const _e1 = new THREE.Euler();
 const _pole = new THREE.Vector3();
+const _k1 = new THREE.Vector3(), _k2 = new THREE.Vector3(), _k3 = new THREE.Vector3(), _k4 = new THREE.Vector3(), _k5 = new THREE.Vector3();
+const _k6 = new THREE.Vector3(), _k7 = new THREE.Vector3(), _k8 = new THREE.Vector3(), _k9 = new THREE.Vector3(), _k10 = new THREE.Vector3();
 const [_f1, _f2, _f3, _f4, _f5, _f6] = Array.from({ length: 6 }, () => new THREE.Vector3());
 const [_l1, _l2, _l3, _l4, _l5, _l6, _l7, _l8, _l9] = Array.from({ length: 9 }, () => new THREE.Vector3());
 

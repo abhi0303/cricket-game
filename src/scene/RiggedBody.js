@@ -16,9 +16,13 @@ import { OFFSET, PARENT, LIMB, HIP_HEIGHT } from './CharacterGeometry.js';
 import { loadGear, mirrored } from './GearModels.js';
 
 // Leg pads on a batter: sized to his shin (knee to ankle): from a little over the top of the foot to the knee roll
-// about 18 cm above the knee. length and below (how far it reaches under the ankle) are in shin lengths; girth
-// narrows the width and depth a little for the slim players.
-const PAD = { length: 1.6, below: 0.12, girth: 0.88, ahead: 0.05 };   // ahead: off the shin, so a bent knee stays inside
+// about 18 cm above the knee. length and below (how far it reaches under the ankle) are in shin lengths; width and
+// depth slim the pad for these slim players (width most: about 20 cm across); ahead sets it off the shin, so a bent
+// knee stays inside.
+const PAD = { length: 1.6, below: 0.12, width: 0.7, depth: 0.88, ahead: 0.05 };
+// The grip: how far each finger joint (1 at the knuckle .. 3) bends round the handle, degrees.
+const GRIP = { Index: [48, 68, 40], Middle: [55, 75, 42], Ring: [60, 75, 42], Pinky: [65, 72, 40], Thumb: [20, 35, 25] };
+const DEG = Math.PI / 180;
 
 // Colours a kit swap looks for in a texture.
 const CLASS = {
@@ -135,8 +139,8 @@ function findBone(scene, name) {
 function rootQuat(o, rootInvQ, out) { return out.copy(rootInvQ).multiply(o.getWorldQuaternion(_q2)); }
 
 export class RiggedBody {
-  /** template: from loadBody(); model: the PlayerModel that wears it; pads: put leg pads on him (batters). */
-  constructor(template, model, { pads = false } = {}) {
+  /** template: from loadBody(); model: the PlayerModel that wears it; batter: leg pads, and hands that grip the bat. */
+  constructor(template, model, { batter = false } = {}) {
     this.model = model;
     this.scene = cloneSkinned(template.scene);
     this.bones = {};
@@ -223,7 +227,73 @@ export class RiggedBody {
     };
     this.tq = {};
     for (const b of ORDER) this.tq[b] = new THREE.Quaternion();
-    if (pads) this.addPads();
+    if (batter) { this.addPads(); this.setupGrip(); }
+  }
+
+  /**
+   * The grip (worked out in the bind pose, palms down): for each hand, its own directions (wrist to knuckles, little
+   * finger to index, out of the palm) and its size, and how each finger joint turns to curl round a handle.
+   */
+  setupGrip() {
+    const P = o => o.getWorldPosition(new THREE.Vector3());
+    const down = new THREE.Vector3(0, -1, 0);
+    this.grip = {};
+    for (const [side, pre] of [['L', 'Left'], ['R', 'Right']]) {
+      const hand = this.bones['hand' + side], find = n => findBone(this.scene, pre + 'Hand' + n);
+      const index1 = find('Index1'), pinky1 = find('Pinky1'), middle1 = find('Middle1');
+      if (!index1 || !pinky1 || !middle1) continue;
+      const f = P(middle1).sub(P(hand)), len = f.length();
+      f.normalize();
+      const k = P(index1).sub(P(pinky1)); k.addScaledVector(f, -k.dot(f)).normalize();
+      const c = new THREE.Vector3().crossVectors(f, k), s = c.dot(down) >= 0 ? 1 : -1, n = c.multiplyScalar(s);
+      const inv = hand.getWorldQuaternion(new THREE.Quaternion()).invert();
+      const local = new THREE.Matrix4().makeBasis(f.clone().applyQuaternion(inv), k.clone().applyQuaternion(inv), n.clone().applyQuaternion(inv));
+      const curls = [];
+      for (const [finger, angles] of Object.entries(GRIP)) {
+        for (let j = 1; j <= 3; j++) {
+          const b = find(finger + j), next = find(finger + (j + 1));
+          if (!b || !next) continue;
+          const d = P(next).sub(P(b)).normalize();
+          const axis = new THREE.Vector3().crossVectors(d, n).normalize().applyQuaternion(b.getWorldQuaternion(new THREE.Quaternion()).invert());
+          curls.push({ bone: b, rest: b.quaternion.clone(), turned: b.quaternion.clone().multiply(new THREE.Quaternion().setFromAxisAngle(axis, angles[j - 1] * DEG)) });
+        }
+      }
+      this.grip[side] = { local, s, len, curls };
+    }
+    this.gripping = null;
+  }
+
+  /** Fingers curled round the handle (on) or open. */
+  setGrip(on) {
+    if (!this.grip || this.gripping === on) return;
+    this.gripping = on;
+    for (const g of Object.values(this.grip)) for (const c of g.curls) c.bone.quaternion.copy(on ? c.turned : c.rest);
+  }
+
+  /**
+   * Hands on the bat: the palm against the handle (top hand in front of it, bottom hand behind), the knuckles along
+   * it (little finger nearer the top), the fingers wrapped round; the arm reaches the wrist there.
+   */
+  gripBat() {
+    const m = this.model, bat = m.batAxisLocal;
+    const S = m.root.getWorldScale(_s).x;
+    const top = m.root.localToWorld(bat.h.clone()), axis = bat.y.clone().transformDirection(m.root.matrixWorld);   // towards the handle's top
+    for (const [side, along] of [['L', 0.05], ['R', 0.15]]) {
+      const g = this.grip[side];
+      if (!g) continue;
+      const G = top.clone().addScaledVector(axis, -along * S);            // where this hand holds the handle
+      // a batting grip: the top hand on the face side of the handle (the back of the hand to the bowler), the
+      // bottom hand on the back of it (palm to the bowler)
+      const r = bat.face.clone().transformDirection(m.root.matrixWorld).multiplyScalar(side === 'L' ? 1 : -1);
+      r.addScaledVector(axis, -r.dot(axis));
+      if (r.lengthSq() < 1e-8) continue;
+      r.normalize();
+      const k = axis.clone().negate(), n = r.clone().negate();
+      const f = new THREE.Vector3().crossVectors(k, n).multiplyScalar(g.s);
+      const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(f, k, n).multiply(g.local.clone().transpose()));
+      const wrist = G.clone().addScaledVector(r, 0.032 * S).addScaledVector(f, -0.5 * g.len);
+      this.reach(this.limbs['arm' + side], wrist, m.b['fore' + side].getWorldPosition(new THREE.Vector3()), q);
+    }
   }
 
   /**
@@ -243,11 +313,17 @@ export class RiggedBody {
       const z = fwd.clone().addScaledVector(up, -fwd.dot(up)).normalize();
       const x = new THREE.Vector3().crossVectors(up, z);
       const s = len * PAD.length;
-      const world = new THREE.Matrix4().makeBasis(x, up, z).scale(new THREE.Vector3(s * PAD.girth, s, s * PAD.girth));
+      const world = new THREE.Matrix4().makeBasis(x, up, z).scale(new THREE.Vector3(s * PAD.width, s, s * PAD.depth));
       world.setPosition(ankle.clone().addScaledVector(up, -len * PAD.below).addScaledVector(z, len * PAD.ahead));
       place[side] = new THREE.Matrix4().copy(shin.matrixWorld).invert().multiply(world);   // in the shin bone's frame
     }
     loadGear('pad').then(scene => {
+      // the pads' size round the shin, in shin lengths, for keeping the bat out of them (PlayerModel.keepBatOffPads)
+      const b = new THREE.Box3().setFromObject(scene), L = PAD.length;
+      this.model.padShape = {
+        half: Math.max(-b.min.x, b.max.x) * L * PAD.width, front: b.max.z * L * PAD.depth + PAD.ahead,
+        back: b.min.z * L * PAD.depth + PAD.ahead, below: PAD.below, top: L - PAD.below,
+      };
       for (const side of ['L', 'R']) {
         const pad = side === 'L' ? scene.clone() : mirrored(scene);
         pad.matrixAutoUpdate = false;
@@ -286,18 +362,24 @@ export class RiggedBody {
       B[b].parent.updateWorldMatrix(true, false);
       this.setWorld(B[b], this.tq[b]);
     }
-    // hands onto our hands (on the bat), feet onto our feet, elbows and knees bending the same way
-    this.reach(this.limbs.armL, m.b.handL, m.b.foreL, this.tq.handL);
-    this.reach(this.limbs.armR, m.b.handR, m.b.foreR, this.tq.handR);
-    this.reach(this.limbs.legL, m.b.footL, m.b.shinL, this.tq.footL);
-    this.reach(this.limbs.legR, m.b.footR, m.b.shinR, this.tq.footR);
+    // hands onto our hands (or gripping the bat), feet onto our feet, elbows and knees bending the same way
+    const W = o => o.getWorldPosition(new THREE.Vector3());
+    const holding = !!this.grip && !!m.bat?.visible && !!m.batAxisLocal;
+    this.setGrip(holding);
+    if (holding) this.gripBat();
+    else {
+      this.reach(this.limbs.armL, W(m.b.handL), W(m.b.foreL), this.tq.handL);
+      this.reach(this.limbs.armR, W(m.b.handR), W(m.b.foreR), this.tq.handR);
+    }
+    this.reach(this.limbs.legL, W(m.b.footL), W(m.b.shinL), this.tq.footL);
+    this.reach(this.limbs.legR, W(m.b.footR), W(m.b.shinR), this.tq.footR);
     this.container.updateMatrixWorld(true);
   }
 
-  /** Two-bone IK: put the end joint of [upper, mid, end] on `target`'s position, bending towards `pole`. */
+  /** Two-bone IK: put the end joint of [upper, mid, end] on `target` (world), bending towards `pole` (world). */
   reach([upper, mid, end], target, pole, endQ) {
     upper.getWorldPosition(_a); mid.getWorldPosition(_b); end.getWorldPosition(_c);
-    target.getWorldPosition(_t); pole.getWorldPosition(_p);
+    _t.copy(target); _p.copy(pole);
     const l1 = _a.distanceTo(_b), l2 = _b.distanceTo(_c);
     const d = Math.min(Math.max(_a.distanceTo(_t), Math.abs(l1 - l2) + 1e-4), l1 + l2 - 1e-4);
     _u.subVectors(_t, _a).normalize();
