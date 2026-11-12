@@ -8,6 +8,10 @@
               straps and buckles, standing up (+y) with the face towards +z, 1 unit tall from the bottom of the instep
               flap (y = 0) to the top of the knee roll (y = 1), centred on the leg it wraps round (the leg's axis is the
               y axis). The game sizes it to each batter's shin and mirrors it for the other leg.
+    helmet.glb  "Cricket Helmet_V1" by pradeepaanandhi5420 (CC-BY-4.0; models-src/cricket_helmet_v1): the shell (with its
+              peak), the grille and the screws as separate meshes (the game colours them: the shell in the team's
+              colour), the grille to the front (+z), 1 unit across the shell, the origin at the top of the dome. Its
+              two team logos are left out.
   Open from a local server at the repo root; ?pad=0|1 picks which pad of the pair.
 -->
 <meta charset="utf-8">
@@ -124,10 +128,113 @@ for (const [name, { mat, geos }] of byMat) {
 const pb = new THREE.Box3().setFromObject(padRoot);
 stats.pad = { which: PAD, parts: pad.length, lean: +(Math.acos(axis.y) * 180 / Math.PI).toFixed(1), faceDeg: +(face * 180 / Math.PI).toFixed(1), widthOfHeight: +(wid / H).toFixed(3), box: [pb.min.toArray().map(v => +v.toFixed(3)), pb.max.toArray().map(v => +v.toFixed(3))] };
 
+// ---------------------------------------------------------------- helmet
+const helSrc = await new GLTFLoader().loadAsync('/models-src/cricket_helmet_v1/scene.gltf');
+helSrc.scene.updateMatrixWorld(true);
+const hParts = {};
+helSrc.scene.traverse(o => {
+  if (!o.isMesh) return;
+  const key = /Screws/.test(o.name) ? 'screws' : /Frame/.test(o.name) ? 'grille' : /base/i.test(o.name) ? 'shell' : null;   // logos left out
+  if (key) hParts[key] = baked(o);
+});
+// the grille looks along -x in the file: turn it to +z; the shell decides the size and where the origin is
+const hR = new THREE.Matrix4().makeRotationY(Math.PI / 2);
+for (const g of Object.values(hParts)) g.applyMatrix4(hR);
+const sh = hParts.shell; sh.computeBoundingBox();
+const hb = sh.boundingBox, hp2 = sh.attributes.position;
+let topI = 0; for (let i = 1; i < hp2.count; i++) if (hp2.getY(i) > hp2.getY(topI)) topI = i;
+const hs = 1 / (hb.max.x - hb.min.x);
+const hT = new THREE.Matrix4().makeScale(hs, hs, hs).multiply(new THREE.Matrix4().makeTranslation(-(hb.min.x + hb.max.x) / 2, -hb.max.y, -hp2.getZ(topI)));
+// Close the small holes in the shell (a jagged one at the back of the model), keeping the ear holes on the sides and
+// the big openings (the face and the bottom rim): find the loops of edges that only one triangle uses, and fill each
+// such loop with a fan from its middle.
+{
+  const g = hParts.shell, p = g.attributes.position, idx = g.index.array;
+  const key = i => `${p.getX(i).toFixed(4)},${p.getY(i).toFixed(4)},${p.getZ(i).toFixed(4)}`;
+  const weld = new Map(), rep2 = new Int32Array(p.count);
+  for (let i = 0; i < p.count; i++) { const k = key(i); if (!weld.has(k)) weld.set(k, i); rep2[i] = weld.get(k); }
+  const edges = new Map();
+  for (let t = 0; t < idx.length; t += 3) for (let e = 0; e < 3; e++) {
+    const a = rep2[idx[t + e]], b = rep2[idx[t + (e + 1) % 3]];
+    const k = a < b ? `${a}_${b}` : `${b}_${a}`;
+    const c = edges.get(k); if (c) c.n++; else edges.set(k, { a, b, n: 1 });
+  }
+  const next = new Map();
+  for (const e of edges.values()) if (e.n === 1) { (next.get(e.a) || next.set(e.a, []).get(e.a)).push(e.b); (next.get(e.b) || next.set(e.b, []).get(e.b)).push(e.a); }
+  const seen = new Set(), loops = [];
+  for (const start of next.keys()) {
+    if (seen.has(start)) continue;
+    const loop = [start]; seen.add(start);
+    let cur = start, prev = -1;
+    for (;;) {
+      const nb = (next.get(cur) || []).find(v => v !== prev && !seen.has(v));
+      if (nb === undefined) break;
+      loop.push(nb); seen.add(nb); prev = cur; cur = nb;
+    }
+    loops.push(loop);
+  }
+  const V = i => new THREE.Vector3().fromBufferAttribute(p, i);
+  const extra = [], pos = Array.from(p.array), nor = Array.from(g.attributes.normal.array), uv = Array.from(g.attributes.uv.array);
+  const width = hb.max.x - hb.min.x;
+  stats.helmetHoles = [];
+  for (const loop of loops) {
+    if (loop.length < 3) continue;
+    let per = 0; const c = new THREE.Vector3();
+    loop.forEach((v, i) => { c.add(V(v)); per += V(v).distanceTo(V(loop[(i + 1) % loop.length])); });
+    c.divideScalar(loop.length);
+    const side = Math.abs(c.x - (hb.min.x + hb.max.x) / 2) / width;
+    const fill = per / width < 0.6 && side < 0.3;     // small, and not on the sides (the ear holes)
+    stats.helmetHoles.push({ verts: loop.length, perimeter: +(per / width).toFixed(3), side: +side.toFixed(2), filled: fill });
+    if (!fill) continue;
+    const ci = pos.length / 3;
+    pos.push(c.x, c.y, c.z);
+    const nrm = c.clone().sub(new THREE.Vector3((hb.min.x + hb.max.x) / 2, (hb.min.y + hb.max.y) / 2, (hb.min.z + hb.max.z) / 2)).normalize();
+    nor.push(nrm.x, nrm.y, nrm.z); uv.push(g.attributes.uv.getX(loop[0]), g.attributes.uv.getY(loop[0]));
+    for (let i = 0; i < loop.length; i++) extra.push(ci, loop[i], loop[(i + 1) % loop.length]);
+  }
+  if (extra.length) {
+    const ng = new THREE.BufferGeometry();
+    ng.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    ng.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    ng.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    ng.setIndex([...idx, ...extra]);
+    hParts.shell = ng;
+  }
+}
+// a patch of the model's shell has its normals pointing inwards (it shows as a dark blotch at the back): count the
+// outward/inward normals there and, if asked, recompute them from the faces
+{
+  const g = hParts.shell, p = g.attributes.position, nn = g.attributes.normal;
+  const C = new THREE.Vector3(0, (hb.min.y + hb.max.y) / 2 + 0.1 * (hb.max.y - hb.min.y), (hb.min.z + hb.max.z) / 2);
+  let inward = 0, total = 0;
+  for (let i = 0; i < p.count; i++) {
+    const v = new THREE.Vector3().fromBufferAttribute(p, i);
+    if (v.y < C.y || v.z > C.z) continue;              // the upper back of the dome
+    total++;
+    if (new THREE.Vector3().fromBufferAttribute(nn, i).dot(v.clone().sub(C)) < 0) inward++;
+  }
+  stats.helmetNormals = { upperBack: total, inward };
+  if (q.get('renormal') !== '0') g.computeVertexNormals();
+}
+const helmet = new THREE.Group(); helmet.name = 'helmet';
+const hMat = helSrc.scene.getObjectByProperty('isMesh', true).material;
+for (const [name, g] of Object.entries(hParts)) {
+  g.applyMatrix4(hT);
+  // (two-sided, like the original: the shell is open where its logos sat, and the grille is thin)
+  const m = name === 'shell'
+    ? new THREE.MeshStandardMaterial({ name, color: 0x27406b, roughness: 0.35, metalness: 0.1, normalMap: hMat.normalMap, side: THREE.DoubleSide })
+    : new THREE.MeshStandardMaterial({ name, color: name === 'grille' ? 0x3a3f47 : 0xc8ccd2, roughness: 0.45, metalness: 0.8, side: THREE.DoubleSide });
+  if (m.normalMap) m.normalMap.userData.mimeType = 'image/jpeg';
+  const mesh = new THREE.Mesh(g, m); mesh.name = name;
+  helmet.add(mesh);
+}
+const hbb = new THREE.Box3().setFromObject(helmet);
+stats.helmet = { parts: Object.keys(hParts), box: [hbb.min.toArray().map(v => +v.toFixed(3)), hbb.max.toArray().map(v => +v.toFixed(3))] };
+
 const exp = new GLTFExporter();
 const enc = async o => btoa(Array.from(new Uint8Array(await exp.parseAsync(o, { binary: true })), c => String.fromCharCode(c)).join(''));
-const batB64 = await enc(bat), padB64 = await enc(padRoot);
-stats.kb = { bat: Math.round(batB64.length * 0.75 / 1024), pad: Math.round(padB64.length * 0.75 / 1024) };
+const batB64 = await enc(bat), padB64 = await enc(padRoot), helB64 = await enc(helmet);
+stats.kb = { bat: Math.round(batB64.length * 0.75 / 1024), pad: Math.round(padB64.length * 0.75 / 1024), helmet: Math.round(helB64.length * 0.75 / 1024) };
 
 // preview: the pad from the front, the side and above (the leg's axis drawn), and the bat face-on and side-on
 const r = new THREE.WebGLRenderer({ canvas: document.getElementById('view'), antialias: true });
@@ -139,7 +246,8 @@ const padView = new THREE.Group(); padView.add(padRoot, legLine);
 const batView = bat.clone(); batView.scale.setScalar(1 / BAT_LEN); batView.position.y = 1.0;
 const cam = new THREE.PerspectiveCamera(30, 0.48, 0.01, 50);
 r.setScissorTest(true);
-const shots = [[padView, [0, 0.5, 3.2], [0, 0.5, 0]], [padView, [3.2, 0.5, 0], [0, 0.5, 0]], [padView, [0.01, 3.4, 0], [0, 0.5, 0]], [batView, [0, 0.5, 3.2], [0, 0.5, 0]], [batView, [3.2, 0.5, 0], [0, 0.5, 0]]];
+const helView = helmet.clone(); helView.position.y = 1;
+const shots = [[padView, [0, 0.5, 3.2], [0, 0.5, 0]], [padView, [3.2, 0.5, 0], [0, 0.5, 0]], [helView, [0, 0.5, 3.6], [0, 0.5, 0]], [helView, [3.6, 0.5, 0], [0, 0.5, 0]], [batView, [3.2, 0.5, 0], [0, 0.5, 0]]];
 shots.forEach(([o, p, t], i) => {
   show.add(o);
   cam.position.set(...p); cam.lookAt(...t); cam.updateProjectionMatrix();
@@ -147,5 +255,5 @@ shots.forEach(([o, p, t], i) => {
   show.remove(o);
 });
 document.getElementById('info').textContent = JSON.stringify(stats);
-window.__gear = { bat: batB64, pad: padB64, stats, done: true };
+window.__gear = { bat: batB64, pad: padB64, helmet: helB64, stats, done: true };
 </script>

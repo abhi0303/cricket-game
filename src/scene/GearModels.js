@@ -4,10 +4,13 @@
 //   pad  one leg pad from "cricket leg ped" by arogeek, CC BY 4.0: 1 unit tall from the bottom of the instep flap
 //        (y = 0) to the top of the knee roll, face +z, wrapped round the y axis (the shin). RiggedBody sizes one to
 //        each shin and mirrors it for the other leg.
+//   helmet "Cricket Helmet_V1" by pradeepaanandhi5420, CC BY 4.0: meshes 'shell' (with the peak), 'grille', 'screws';
+//        the grille to +z, 1 unit across the shell, the origin at the top of the dome. RiggedBody fits it to the head
+//        and colours the shell.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-const FILES = { bat: 'assets/models/gear/bat.glb', pad: 'assets/models/gear/pad.glb' };
+const FILES = { bat: 'assets/models/gear/bat.glb', pad: 'assets/models/gear/pad.glb', helmet: 'assets/models/gear/helmet.glb' };
 const loads = {};
 
 /** The gear model's scene (shared: clone it to use it). */

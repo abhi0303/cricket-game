@@ -137,7 +137,8 @@ export class PlayerModel {
     // --- headgear
     const q = this.kit.quality;
     const attach = (geo, parent) => { const m = new THREE.Mesh(geo, mat); m.castShadow = o.shadows !== false; parent.add(m); return m; };
-    const helmetGeo = () => cached(`helmet:${team.primary}:${team.secondary}:${q}`, () => buildHelmet(shade(team.primary, -0.28), team.secondary, q));
+    this.helmetColor = shade(team.primary, -0.28);   // (a worn body's helmet takes it too)
+    const helmetGeo = () => cached(`helmet:${team.primary}:${team.secondary}:${q}`, () => buildHelmet(this.helmetColor, team.secondary, q));
     const capGeo = () => cached(`cap:${team.primary}:${team.secondary}:${q}`, () => buildCap(team.primary, team.secondary, q));
     if (gear === 'batter') this.helmet = attach(helmetGeo(), this.b.head);
     else if (gear === 'keeper') { this.cap = attach(capGeo(), this.b.head); this.helmet = attach(helmetGeo(), this.b.head); this.helmet.visible = false; }

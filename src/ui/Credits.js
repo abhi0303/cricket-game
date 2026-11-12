@@ -24,6 +24,10 @@ export const CREDITS = [
     url: 'https://sketchfab.com/3d-models/cricket-leg-ped-42f912de462d4522828ae04ca2363757', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
   },
   {
+    what: 'Helmet', title: 'Cricket Helmet_V1', author: 'pradeepaanandhi5420', authorUrl: 'https://sketchfab.com/pradeepaanandhi5420',
+    url: 'https://sketchfab.com/3d-models/cricket-helmet-v1-9b608ca09b8d46fd8579986d22c7ecb7', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
+  },
+  {
     what: 'Stadium', title: 'Cricket stadium', author: 'Hassnain_ALy', authorUrl: 'https://sketchfab.com/Hassnain_ALy',
     url: 'https://sketchfab.com/3d-models/cricket-stadium-b4b9964dacc9444e8a265a81fca22afb', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
   },

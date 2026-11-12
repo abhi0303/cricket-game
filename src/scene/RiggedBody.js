@@ -23,6 +23,9 @@ const PAD = { length: 1.6, below: 0.12, width: 0.7, depth: 0.88, ahead: 0.05 };
 // The grip: how far each finger joint (1 at the knuckle .. 3) bends round the handle, degrees.
 const GRIP = { Index: [48, 68, 40], Middle: [55, 75, 42], Ring: [60, 75, 42], Pinky: [65, 72, 40], Thumb: [20, 35, 25] };
 const DEG = Math.PI / 180;
+// The helmet: the shell this much wider than the head (ears and hair included), its dome this far above the top of
+// the head (m, at the player's own size).
+const HELMET = { widthOverHead: 1.3, gap: 0.012, tuck: 0.85, from: 0.6 };   // tuck: the hair under it (see addHelmet)
 
 // Colours a kit swap looks for in a texture.
 const CLASS = {
@@ -227,7 +230,66 @@ export class RiggedBody {
     };
     this.tq = {};
     for (const b of ORDER) this.tq[b] = new THREE.Quaternion();
-    if (batter) { this.addPads(); this.setupGrip(); }
+    if (batter) { this.addPads(); this.setupGrip(); this.addHelmet(); }
+  }
+
+  /**
+   * A helmet on the head bone, fitted in the bind pose to the head as the mesh has it (the vertices skinned to the
+   * head): the shell centred over it, its dome just above the top of the head, sized to the head's width; the shell
+   * in the team's colour.
+   */
+  addHelmet() {
+    const root = this.model.root, mesh = this.mesh, head = this.bones.head;
+    root.updateMatrixWorld(true);
+    const ax = [0, 1, 2].map(i => new THREE.Vector3(...[i === 0 ? 1 : 0, i === 1 ? 1 : 0, i === 2 ? 1 : 0]).transformDirection(root.matrixWorld));
+    const o = root.getWorldPosition(new THREE.Vector3());
+    const headBones = new Set(mesh.skeleton.bones.map((b, i) => (/Head|Eye/.test(b.name) ? i : -1)).filter(i => i >= 0));
+    const si = mesh.geometry.attributes.skinIndex, sw = mesh.geometry.attributes.skinWeight, n = si.count;
+    const v = new THREE.Vector3(), lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    let topV = null;
+    for (let i = 0; i < n; i++) {
+      let w = 0;
+      for (let k = 0; k < 4; k++) if (headBones.has(si.getComponent(i, k))) w += sw.getComponent(i, k);
+      if (w < 0.5) continue;
+      mesh.getVertexPosition(i, v).applyMatrix4(mesh.matrixWorld).sub(o);
+      const c = ax.map(a => v.dot(a));
+      for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], c[k]); hi[k] = Math.max(hi[k], c[k]); }
+      if (!topV || c[1] > topV[1]) topV = c;
+    }
+    if (!topV) return;
+    // The hair would poke through the shell: on this batter's own copy of the mesh, pull everything of the head above
+    // the brow (the top 40% of it) in towards the middle of the skull. It's all under the helmet.
+    const geo = mesh.geometry = mesh.geometry.clone();
+    const pos = geo.attributes.position, inv = new THREE.Matrix4().copy(mesh.matrixWorld).invert();
+    const brow = lo[1] + (hi[1] - lo[1]) * HELMET.from;
+    const skull = o.clone().addScaledVector(ax[0], (lo[0] + hi[0]) / 2).addScaledVector(ax[1], (brow + hi[1]) / 2 - 0.02).addScaledVector(ax[2], (lo[2] + hi[2]) / 2).applyMatrix4(inv);
+    for (let i = 0; i < n; i++) {
+      let w = 0;
+      for (let k = 0; k < 4; k++) if (headBones.has(si.getComponent(i, k))) w += sw.getComponent(i, k);
+      if (w < 0.5) continue;
+      mesh.getVertexPosition(i, v).applyMatrix4(mesh.matrixWorld).sub(o);
+      if (v.dot(ax[1]) < brow) continue;
+      v.fromBufferAttribute(pos, i).sub(skull).multiplyScalar(HELMET.tuck).add(skull);
+      pos.setXYZ(i, v.x, v.y, v.z);
+    }
+    pos.needsUpdate = true;
+    geo.computeBoundingSphere();
+    const scale = root.getWorldScale(new THREE.Vector3()).x;
+    const s = (hi[0] - lo[0]) * HELMET.widthOverHead;
+    const at = o.clone().addScaledVector(ax[0], (lo[0] + hi[0]) / 2).addScaledVector(ax[1], topV[1] + HELMET.gap * scale).addScaledVector(ax[2], (lo[2] + hi[2]) / 2);
+    const world = new THREE.Matrix4().makeBasis(ax[0], ax[1], ax[2]).scale(new THREE.Vector3(s, s, s)).setPosition(at);
+    const local = new THREE.Matrix4().copy(head.matrixWorld).invert().multiply(world);
+    this.helmetFit = { headWidth: +(hi[0] - lo[0]).toFixed(3), headDepth: +(hi[2] - lo[2]).toFixed(3), scale };
+    loadGear('helmet').then(scene => {
+      const helmet = scene.clone();
+      const shell = helmet.getObjectByName('shell');
+      if (shell) { shell.material = shell.material.clone(); shell.material.color.set(this.model.helmetColor || '#1d2a4d'); }
+      helmet.matrixAutoUpdate = false;
+      helmet.matrix.copy(local);
+      helmet.name = 'helmet';
+      head.add(helmet);
+      this.container.updateMatrixWorld(true);
+    }).catch(err => console.warn('Helmet not loaded.', err));
   }
 
   /**
