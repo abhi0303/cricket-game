@@ -333,6 +333,7 @@ export const MatchSetup = {
         <label>Graphics ${sel('quality', [['low', 'Low (fast)'], ['medium', 'Medium'], ['high', 'High (sharp shadows)']], s.quality)}</label>
         <label>Sound ${sel('sound', [['true', 'On'], ['false', 'Off']], String(s.sound))}</label>
         <label>On-screen control hints ${sel('hints', [['on', 'Show'], ['off', 'Hide']], s.hints === 'off' ? 'off' : 'on')}</label>
+        <label>Touch controls ${sel('touch', [['auto', 'Auto (touch screens)'], ['on', 'On'], ['off', 'Off']], s.touch || 'auto')}</label>
         <label class="slider">Volume <input type="range" id="volume" min="0" max="1" step="0.05" value="${s.volume}"></label>
       </div>
       ${v.ok ? '' : `<div class="validation bad"><h3>Your playing XI isn't legal yet</h3><p>${esc(v.errors[0].message)}</p><button class="btn small" data-go="strategy">Fix in Team Strategy</button></div>`}
@@ -346,7 +347,7 @@ export const MatchSetup = {
   bind(root, app) {
     const s = app.settings;
     const read = () => {
-      for (const k of ['overs', 'difficulty', 'opponent', 'stadium', 'timeOfDay', 'tossMode', 'battingCamera', 'bowlingCamera', 'quality', 'hints']) s[k] = $('#' + k, root).value;
+      for (const k of ['overs', 'difficulty', 'opponent', 'stadium', 'timeOfDay', 'tossMode', 'battingCamera', 'bowlingCamera', 'quality', 'hints', 'touch']) s[k] = $('#' + k, root).value;
       // the format list mixes over counts with the Test option
       if (s.overs === 'test') { s.format = 'test'; s.overs = 20; } else { s.format = 'limited'; s.overs = Number(s.overs); }
       for (const k of ['assistRunning', 'autoReplay', 'aimMarker', 'sound', 'freeHit']) s[k] = $('#' + k, root).value === 'true';

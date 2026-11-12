@@ -243,6 +243,7 @@ export class HUD {
    * buttons for what can be done right now. No items hides it.
    */
   hints(input, profile, items, title = HINT_TITLE[profile] || '', { status = '', urgent = false } = {}) {
+    input.touch?.offer(profile, items);   // the touch buttons show the same choices
     const el = this.q('.hints');
     if (el) { el.classList.toggle('live', !!status && items.length > 0); el.classList.toggle('urgent', urgent); }
     this.set('.hints', items.length ? `${title ? `<div class="hints-head">${esc(title)}</div>` : ''}${status ? `<div class="hints-status">${esc(status)}</div>` : ''}<div class="hints-grid">${hintBar(input, profile, items)}</div>` : '');
@@ -420,6 +421,7 @@ export function settingsHTML(s, battingViews, bowlingViews, { nets = false } = {
       ${nets ? '' : `<label>Bowling camera ${sel('bowlingCamera', bowlingViews.map(v => [v.id, v.label]), s.bowlingCamera)}</label>`}
       <label>Sound ${sel('sound', onOff, String(s.sound))}</label>
       <label>On-screen control hints ${sel('hints', [['on', 'Show'], ['off', 'Hide']], s.hints === 'off' ? 'off' : 'on')}</label>
+      <label>Touch controls ${sel('touch', [['auto', 'Auto (touch screens)'], ['on', 'On'], ['off', 'Off']], s.touch || 'auto')}</label>
       <label class="slider">Volume <input type="range" id="volume" data-setting="volume" min="0" max="1" step="0.05" value="${s.volume}"></label>
       ${nets ? '' : `<label>Replays after big moments ${sel('autoReplay', onOff, String(s.autoReplay))}</label>
       <label>Bowling aim marker ${sel('aimMarker', [['true', 'Show'], ['false', 'Hide']], String(s.aimMarker))}</label>

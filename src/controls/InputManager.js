@@ -1,12 +1,13 @@
-// Merges keyboard and gamepad into actions for the active profile, with press edges
+// Merges keyboard, gamepad and touch into actions for the active profile, with press edges
 // (a held button never re-triggers), analog values for triggers and one direction axis.
 
 import { mergeBindings, AXIS_KEYS, PAD } from './Bindings.js';
 
 export class InputManager {
-  constructor({ keyboard, gamepad, bindings = null }) {
+  constructor({ keyboard, gamepad, touch = null, bindings = null }) {
     this.kb = keyboard;
     this.pad = gamepad;
+    this.touch = touch;   // TouchControls: on-screen buttons and thumb-stick, by action
     this.bindings = mergeBindings(bindings);
     this.profile = 'menu';
     this.prev = new Map();
@@ -33,6 +34,7 @@ export class InputManager {
     let v = 0;
     if (this.kb && this.kb.anyDown(b.keys)) v = 1;
     if (this.pad && this.pad.connected) for (const i of b.pad) v = Math.max(v, this.pad.value(i));
+    if (this.touch && profile === this.profile) v = Math.max(v, this.touch.value(action));
     return v;
   }
   rawDown(action, profile) { return this.rawValue(action, profile) > 0.5; }
@@ -47,17 +49,18 @@ export class InputManager {
     const acts = this.bindings[this.profile] || {};
     const taps = this.kb?.takeTaps ? this.kb.takeTaps() : new Map();
     if (this.kb) this.kb.lastTaps = taps;
+    const touchTaps = this.touch ? this.touch.takeTaps() : new Map();
     for (const a of Object.keys(acts)) {
-      // A key tapped and released between two frames still counts as a press.
-      const now = this.rawDown(a) || (!this.prev.get(a) && acts[a].keys.some(k => taps.has(k)));
+      // A key (or touch button) tapped and released between two frames still counts as a press.
+      const now = this.rawDown(a) || (!this.prev.get(a) && (acts[a].keys.some(k => taps.has(k)) || touchTaps.has(a)));
       const before = !!this.prev.get(a);
       if (now && !before) this.edges.add(a);
       if (!now && before) this.releases.add(a);
       this.cur.set(a, now);
       this.prev.set(a, now);
     }
-    const padT = this.pad?.lastActivity || 0, kbT = this.kb?.lastActivity || 0;
-    if (padT || kbT) this.lastDevice = padT > kbT ? 'gamepad' : 'keyboard';
+    const padT = this.pad?.lastActivity || 0, kbT = this.kb?.lastActivity || 0, tT = this.touch?.lastActivity || 0;
+    if (padT || kbT || tT) this.lastDevice = tT > padT && tT > kbT ? 'touch' : padT > kbT ? 'gamepad' : 'keyboard';
   }
 
   /** True once on the frame the action was pressed. */
@@ -75,6 +78,7 @@ export class InputManager {
     const b = this.bindings[this.profile]?.[action];
     if (!b) return 0;
     if (this.kb && (this.kb.anyDown(b.keys) || b.keys.some(k => this.kb.lastTaps?.has(k)))) return this.kb.ageOf(b.keys);
+    if (this.touch && (this.touch.isDown(action) || this.touch.lastTaps.has(action))) return this.touch.ageOf(action);   // touch events carry their time too
     return this.frameDt ? this.frameDt / 2 : 0;
   }
   down(action) { return !!this.cur.get(action); }
@@ -108,6 +112,7 @@ export class InputManager {
       if (pdown(PAD.UP)) y += 1;
       if (pdown(PAD.DOWN)) y -= 1;
     }
+    if (this.touch) { const s = this.touch.stick(); x += s.x; y += s.y; }
     const m = Math.hypot(x, y);
     if (m > 1) { x /= m; y /= m; }
     return { x, y };

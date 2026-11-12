@@ -33,4 +33,5 @@ export const DEFAULT_SETTINGS = {
   aimMarker: true,
   autoReplay: true,
   hints: 'on',            // the button card under the field chart
+  touch: 'auto',          // on-screen touch controls: 'auto' (phones, tablets, or once a finger is used), 'on', 'off'
 };

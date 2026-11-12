@@ -35,8 +35,12 @@ jobs:
       - name: Collect the site
         run: |
           mkdir _site
-          cp -R index.html css src assets _site/
+          cp -R index.html manifest.webmanifest sw.js css src assets _site/
           touch _site/.nojekyll
+          # the offline app (sw.js): the files to save on install, and a version so a new publish replaces the old copy
+          (cd _site && find index.html manifest.webmanifest css src assets -type f ! -name '*.txt' ! -name '.DS_Store' | sort | python3 -c 'import sys, json; print(json.dumps(["./" + l.strip() for l in sys.stdin]))' > precache.json)
+          sed -i "s/^const VERSION = 'dev';/const VERSION = '${GITHUB_SHA::12}';/" _site/sw.js
+          grep -n "^const VERSION" _site/sw.js
           echo "Published files:" && find _site -type f | wc -l
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

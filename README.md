@@ -1,8 +1,10 @@
 # Low-Poly Cricket
 
-A playable low-poly 3D cricket game in plain HTML, CSS and JavaScript with Three.js. Build a 15-player squad, pick a legal playing XI, and play a 5, 10 or 20-over match or a five-day Test against the computer. You can use the keyboard or a USB/Bluetooth game controller.
+A playable low-poly 3D cricket game in plain HTML, CSS and JavaScript with Three.js. Build a 15-player squad, pick a legal playing XI, and play a 5, 10 or 20-over match or a five-day Test against the computer. Play on a phone or tablet with touch controls, with the keyboard, or with a USB/Bluetooth game controller.
 
-**Play online: https://abhi0303.github.io/cricket-game/** (desktop browser recommended: Chrome, Edge, Firefox or Safari).
+**Play online: https://abhi0303.github.io/cricket-game/** (Chrome, Edge, Firefox or Safari, on a computer, phone or tablet).
+
+**Install it as an app:** it's a PWA. On Android (Chrome) use the menu's **Install app** / **Add to Home screen**; on an iPhone or iPad (Safari) use **Share → Add to Home Screen**; on a computer, the install button in the address bar. It then opens full screen in landscape with its own icon, and after it has loaded once (the stadium, players and ball included) it also plays offline.
 
 ![A delivery seen from the TV camera, with the field chart, controls and score strip](assets/preview.jpg)
 
@@ -25,7 +27,7 @@ The cricket rules, squad validation, ball physics, AI, input handling and camera
 npm test          # node --test tests/*.test.js
 ```
 
-There are 161 tests. They cover every squad-composition rule, scoring and extras, Test matches (innings order, stumps and the day's overs, the follow-on, innings wins, chases, ties, declarations, draws on time, the new ball, the Test wide rule, the computer's declarations and Test-like AI scoring), the free-hit switch, DRS (ball tracking's pitching / impact / wickets calls and umpire's-call margins, overturns, reviews kept and lost, three a side per innings, the on-field umpire's accuracy and when the computer reviews), fielding (catches by height, pickups, long barriers, dives only when needed and never at a slow ball, facing the ball and turning to throw, run-outs taken in the gloves before the stumps are broken, someone covering the stumps when the keeper or bowler chases, every throw taken by someone standing where it arrives), strike rotation, over changes, wickets and the next batter, free hits, bowler over limits, target chasing and results. They also run full AI-vs-AI matches in all three formats (checking that runs, balls and wickets always add up), save/resume mid-match, skipping ahead (simulating an innings, stopping exactly at the final overs of a chase), moving across the crease (keys, reach, pads and stumps, wide calls), the controller layout and shot direction in every camera, sprinting and diving for the crease (only near the line, and no further run after a dive until you call one), net practice (fixed and random speeds, the chosen length, line and delivery always bowled, the netting stopping the ball, and what each shot would be worth on the field), the bowling physics (all 10 speeds × 8 lengths, pitching inside the chosen range, bounce direction, travel and reaction times, identical results at 30/60/120 FPS, nothing passing through the bat, body or stumps), timing windows and shot selection, bat on ball (where each shot can reach, the ball leaving from where the bat meets it and never from behind the batter, the outcome settled as the shot is played), the field-chart aim, swing and spin direction, gamepad edge detection, dead zones and connect/disconnect, the batting and bowling camera positions (including the TV framing, and the batting camera staying put for a block), the field chart's orientation and counts, every named import between the game's modules, and the batting animations (footwork, contact positions, the bat keeping its speed through the ball, high finishes).
+There are 166 tests. They cover every squad-composition rule, scoring and extras, Test matches (innings order, stumps and the day's overs, the follow-on, innings wins, chases, ties, declarations, draws on time, the new ball, the Test wide rule, the computer's declarations and Test-like AI scoring), the free-hit switch, DRS (ball tracking's pitching / impact / wickets calls and umpire's-call margins, overturns, reviews kept and lost, three a side per innings, the on-field umpire's accuracy and when the computer reviews), fielding (catches by height, pickups, long barriers, dives only when needed and never at a slow ball, facing the ball and turning to throw, run-outs taken in the gloves before the stumps are broken, someone covering the stumps when the keeper or bowler chases, every throw taken by someone standing where it arrives), strike rotation, over changes, wickets and the next batter, free hits, bowler over limits, target chasing and results. They also run full AI-vs-AI matches in all three formats (checking that runs, balls and wickets always add up), save/resume mid-match, skipping ahead (simulating an innings, stopping exactly at the final overs of a chase), moving across the crease (keys, reach, pads and stumps, wide calls), the controller layout and shot direction in every camera, sprinting and diving for the crease (only near the line, and no further run after a dive until you call one), net practice (fixed and random speeds, the chosen length, line and delivery always bowled, the netting stopping the ball, and what each shot would be worth on the field), the bowling physics (all 10 speeds × 8 lengths, pitching inside the chosen range, bounce direction, travel and reaction times, identical results at 30/60/120 FPS, nothing passing through the bat, body or stumps), timing windows and shot selection, bat on ball (where each shot can reach, the ball leaving from where the bat meets it and never from behind the batter, the outcome settled as the shot is played), the field-chart aim, swing and spin direction, gamepad edge detection, dead zones and connect/disconnect, the touch controls (presses and taps, the thumb-stick, the toggles, which buttons show and where, back-dated presses), the batting and bowling camera positions (including the TV framing, and the batting camera staying put for a block), the field chart's orientation and counts, every named import between the game's modules, and the batting animations (footwork, contact positions, the bat keeping its speed through the ball, high finishes).
 
 ### Publishing on GitHub Pages
 
@@ -42,6 +44,14 @@ After that, every push to `main` updates the site within a minute or two. You ca
 All paths in the game are relative, so it works from a repository subfolder (`/cricket-game/`) or a custom domain without changes. If you fork it or rename the repository, update the `og:url` and `og:image` addresses in `index.html` (they set the preview shown when the link is shared) and the "Play online" link above.
 
 ## How to play
+
+**On a phone or tablet:** hold it sideways (in portrait the game asks you to turn it). The touch controls appear whenever you're playing, and only then (never over menus or pop-ups):
+
+- **The thumb-stick** (bottom left) aims, like a controller's left stick: push it towards the bowler for front-foot shots, away for back-foot ones, left and right for the leg and off side (the gold wedge on the field chart shows where the shot will go). Bowling, it moves your aim on the pitch.
+- **The buttons** (bottom right) are only the ones that make sense right now, each with an icon and a short label, set out like a controller (green A at the bottom of the diamond, red B right, blue X left, yellow Y top, the shoulder buttons round it). Batting: Ground, Lofted, Defend, Sweep, Leave, Power and Precision, with ◀ ▶ over the stick to move across the crease. Running: Run, Back/Stay in, Sprint, Dive. Bowling: Bowl (hold to run in, lift your finger in the green zone), Faster, Slower, Length, Variation, Effort. Fielding: the throw ends. Between balls: Next and Replay.
+- **Power, Precision and Effort are toggles:** tap to arm them for the next shot or delivery (the button lights up), tap again to disarm; they clear themselves once the shot is played.
+- **Top row:** pause (top left), and the camera and full-screen buttons next to the field chart.
+- Phones start on **Low** graphics, and the HUD, menus and pop-ups shrink to fit a short screen. **Touch controls** in Match Settings or Pause → Settings: Auto (on a touch screen, or once you touch it), On or Off. A connected controller takes over from them.
 
 **Menus:** start with **Create My Team** (name, colours, emblem). Then use **Manage Players** to edit the 15 players' names, numbers, roles, styles and ratings, and **Team Strategy** to pick the XI and batting order. **Play Match** opens Match Settings, then the toss.
 
@@ -193,7 +203,12 @@ In AI-vs-AI testing at Normal, a T20 averages around 170/6 at about 9 an over, w
 
 ```
 index.html, css/style.css
-src/main.js                     bootstrap + main loop
+manifest.webmanifest, sw.js     the installable app: name, icons, full screen landscape; offline (the service worker
+                                saves the game as it loads; the deploy writes its file list and version)
+assets/icons/                   app icons (drawn in scripts/icon.svg)
+src/main.js                     bootstrap + main loop (+ touch layer, full screen, service worker)
+src/controls/TouchControls.js   on-screen thumb-stick and buttons (laid out like the controller), read by InputManager
+src/ui/TouchIcons.js            the touch buttons' icons
 src/game/
   PlayerAttributes.js           roles, styles, ratings, XI slot categories
   TeamManager.js                squad generation, validatePlayingXI(), validateSquad(), auto XI, batting order

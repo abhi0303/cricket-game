@@ -679,7 +679,7 @@ export class MatchController {
       const sp = sim.spec;
       hud.meter(sim.phase === 'ready' || sim.phase === 'runup' ? sim : null, t ? t.label : '', Math.max(sim.power, input.value('power')),
         { speed: sp.speedKph, length: lengthDef(sp.length).label, canFaster: sp.speedKph < sim.speedOptions[0], canSlower: sp.speedKph > sim.speedOptions[sim.speedOptions.length - 1] });
-      if (sim.awaitThrow) return;
+      if (sim.awaitThrow) { hud.hints(input, 'fielding', [['throwKeeper', "Keeper's end"], ['throwBowler', "Bowler's end"], ['throwAuto', 'Best end']], 'Throw'); return; }
       if (sim.phase === 'ready') hud.hints(input, 'bowling', [['bowl', 'Hold to bowl'], ['speedUp', 'Faster'], ['speedDown', 'Slower'], ['lengthNext', 'Length'], ['typeNext', 'Variation'], ['power', 'Effort']]);
       else if (sim.phase === 'runup') hud.hints(input, 'bowling', [['bowl', 'Release on green'], ['power', 'Extra pace']]);
       else hud.hints(input, 'bowling', []);
