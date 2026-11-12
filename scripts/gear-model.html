@@ -26,11 +26,40 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { MeshoptSimplifier } from 'https://cdn.jsdelivr.net/npm/meshoptimizer@0.21.0/meshopt_simplifier.module.js';
+
+/**
+ * Fewer triangles for the same shape: weld the mesh (vertices that differ only in their normal), simplify it to
+ * `keep` of its triangles without moving its open edges or texture seams, and smooth the normals again.
+ */
+function lighten(geo, keep, err = 0.002) {
+  if (keep >= 1) return geo;
+  const g0 = geo.clone(); g0.deleteAttribute('normal');
+  const g = mergeVertices(g0, 1e-5);
+  const idx = new Uint32Array(g.index.array), pos = g.attributes.position.array;
+  const [out] = MeshoptSimplifier.simplify(idx, pos, 3, Math.max(3, Math.floor(idx.length * keep / 3) * 3), err, ['LockBorder']);
+  const remap = new Map(), names = Object.keys(g.attributes), data = Object.fromEntries(names.map(n => [n, []])), ni = new Uint32Array(out.length);
+  for (let i = 0; i < out.length; i++) {
+    let j = remap.get(out[i]);
+    if (j === undefined) { j = remap.size; remap.set(out[i], j); for (const n of names) { const a = g.attributes[n]; for (let k = 0; k < a.itemSize; k++) data[n].push(a.array[out[i] * a.itemSize + k]); } }
+    ni[i] = j;
+  }
+  const r = new THREE.BufferGeometry();
+  for (const n of names) r.setAttribute(n, new THREE.Float32BufferAttribute(data[n], g.attributes[n].itemSize));
+  r.setIndex(new THREE.BufferAttribute(remap.size < 65536 ? new Uint16Array(ni) : ni, 1));
+  r.computeVertexNormals();
+  return r;
+}
+const tris = g => (g.index ? g.index.count : g.attributes.position.count) / 3;
+await MeshoptSimplifier.ready;
 
 const BAT_LEN = 0.85;
 const q = new URLSearchParams(location.search);
 const PAD = Number(q.get('pad') || 1);   // the pad whose straps lie flat round the back
+// Detail kept (the downloads are far more detailed than a pad or helmet a few centimetres across on screen needs;
+// the full pad was 72,000 triangles and made phones slow): share of the triangles kept for each.
+const KEEP = { pad: Number(q.get('padKeep') || 0.09), helmetShell: Number(q.get('shellKeep') || 0.4), grille: Number(q.get('grilleKeep') || 0.5) };
 const stats = {};
 const baked = m => { const g = m.geometry.clone().applyMatrix4(m.matrixWorld); for (const n of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(n)) g.deleteAttribute(n); return g; };
 
@@ -122,7 +151,10 @@ for (const { g, mat } of pad) {
 for (const [name, { mat, geos }] of byMat) {
   const m = mat.clone(); m.name = name;
   if (m.map) { m.map.userData.mimeType = 'image/jpeg'; }
-  const mesh = new THREE.Mesh(mergeGeometries(geos), m); mesh.name = name.replace(/[^A-Za-z0-9]+/g, '_');
+  const full = mergeGeometries(geos);
+  const lite = lighten(full, KEEP.pad);
+  stats.padTris = (stats.padTris || 0) + tris(full); stats.padTrisLite = (stats.padTrisLite || 0) + tris(lite);
+  const mesh = new THREE.Mesh(lite, m); mesh.name = name.replace(/[^A-Za-z0-9]+/g, '_');
   padRoot.add(mesh);
 }
 const pb = new THREE.Box3().setFromObject(padRoot);
@@ -225,7 +257,9 @@ for (const [name, g] of Object.entries(hParts)) {
     ? new THREE.MeshStandardMaterial({ name, color: 0x27406b, roughness: 0.35, metalness: 0.1, normalMap: hMat.normalMap, side: THREE.DoubleSide })
     : new THREE.MeshStandardMaterial({ name, color: name === 'grille' ? 0x3a3f47 : 0xc8ccd2, roughness: 0.45, metalness: 0.8, side: THREE.DoubleSide });
   if (m.normalMap) m.normalMap.userData.mimeType = 'image/jpeg';
-  const mesh = new THREE.Mesh(g, m); mesh.name = name;
+  const lite = name === 'shell' ? lighten(g, KEEP.helmetShell) : name === 'grille' ? lighten(g, KEEP.grille) : g;
+  stats.helmetTris = (stats.helmetTris || 0) + tris(g); stats.helmetTrisLite = (stats.helmetTrisLite || 0) + tris(lite);
+  const mesh = new THREE.Mesh(lite, m); mesh.name = name;
   helmet.add(mesh);
 }
 const hbb = new THREE.Box3().setFromObject(helmet);

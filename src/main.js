@@ -1,6 +1,6 @@
 // Application bootstrap: renderer, stadium, cameras, input, sound, UI and the main loop.
 import * as THREE from 'three';
-import { createRenderer, QUALITY } from './scene/Renderer.js';
+import { createRenderer, QUALITY, ratioRange, ResolutionGovernor } from './scene/Renderer.js';
 import { StadiumScene } from './scene/StadiumScene.js';
 import { CameraManager } from './scene/CameraManager.js';
 import { MatchView } from './scene/MatchView.js';
@@ -19,7 +19,7 @@ const touchDevice = isTouchDevice();
 const settings = { ...DEFAULT_SETTINGS, ...(touchDevice ? { quality: 'low' } : {}), ...(Storage.get('settings') || {}) };
 document.documentElement.classList.toggle('touch', touchDevice);
 const canvas = document.getElementById('game');
-const renderer = createRenderer(canvas, settings.quality);
+const renderer = createRenderer(canvas, settings.quality, { touch: touchDevice });
 const stadium = new StadiumScene(renderer, { stadium: settings.stadium, timeOfDay: settings.timeOfDay, quality: settings.quality });
 setCharacterEnvironment(renderer);
 const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 2200);
@@ -79,6 +79,25 @@ addEventListener('pointerdown', unlock);
 addEventListener('keydown', unlock);
 addEventListener('gamepadconnected', () => sound.resume());
 
+// Render resolution: as sharp as the Graphics setting allows on this screen, lowered automatically while frames are
+// slow (see ResolutionGovernor).
+const governor = new ResolutionGovernor({
+  ...ratioRange(settings.quality, { dpr: devicePixelRatio, touch: touchDevice }),
+  fps: QUALITY[settings.quality]?.fps || 60,
+  apply: r => { renderer.setPixelRatio(r); renderer.setSize(innerWidth, innerHeight, false); },
+});
+let qualityNow = settings.quality;
+/** The Graphics setting changed: new resolution range and shadows (materials recompile for the shadow change). */
+function applyQualitySetting(q) {
+  qualityNow = q;
+  const Q = QUALITY[q] || QUALITY.medium;
+  governor.setRange(ratioRange(q, { dpr: devicePixelRatio, touch: touchDevice }), Q.fps);
+  if (renderer.shadowMap.enabled !== Q.shadows) {
+    renderer.shadowMap.enabled = Q.shadows;
+    stadium.scene.traverse(o => { if (o.material) for (const m of [].concat(o.material)) m.needsUpdate = true; });
+  }
+}
+
 function resize() {
   renderer.setSize(innerWidth, innerHeight, false);
   camera.aspect = innerWidth / Math.max(1, innerHeight);
@@ -109,13 +128,16 @@ let acc = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   if (window.__game?.frozen) { last = now; return; }   // automated tests drive frames themselves
-  const fps = QUALITY[app.settings.quality]?.fps || 60;
+  if (app.settings.quality !== qualityNow) applyQualitySetting(app.settings.quality);
+  const fps = governor.fps;
   acc += now - last;
   const dtMs = now - last;
   last = now;
   if (fps < 60 && acc < 1000 / fps - 2) return;
-  const dt = Math.min(0.05, (fps < 60 ? acc : dtMs) / 1000);
+  const frameMs = fps < 60 ? acc : dtMs;
+  const dt = Math.min(0.05, frameMs / 1000);
   acc = 0;
+  governor.frame(frameMs);
   input.update(dt);
   if (showcase) { showcase.update(dt); stadium.update(dt, now / 1000); renderer.render(stadium.scene, camera); return; }
   const ctx = app.update(dt);
@@ -135,7 +157,7 @@ if ('serviceWorker' in navigator && (!/^(localhost|127\.)/.test(location.hostnam
 
 // Debug / automated-test hooks (harmless in normal play).
 window.__game = {
-  app, stadium, cameras, view, renderer, input, keyboard, touch, syncTouch,
+  app, stadium, cameras, view, renderer, input, keyboard, touch, syncTouch, governor,
   /** Advance the game by `sec` seconds of simulated frames without rendering. */
   step(sec = 1) {
     for (let i = 0; i < Math.round(sec * 60); i++) { input.update(); const c = app.update(1 / 60); stadium.update(1 / 60, i / 60); cameras.update(1 / 60, c || {}); }
