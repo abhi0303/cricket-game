@@ -81,10 +81,11 @@ addEventListener('gamepadconnected', () => sound.resume());
 
 // Render resolution: as sharp as the Graphics setting allows on this screen, lowered automatically while frames are
 // slow (see ResolutionGovernor).
+let viewW = 0, viewH = 0;   // the canvas's size on screen (CSS pixels), see fitView()
 const governor = new ResolutionGovernor({
   ...ratioRange(settings.quality, { dpr: devicePixelRatio, touch: touchDevice }),
   fps: QUALITY[settings.quality]?.fps || 60,
-  apply: r => { renderer.setPixelRatio(r); renderer.setSize(innerWidth, innerHeight, false); },
+  apply: r => { renderer.setPixelRatio(r); fitView(true); },
 });
 let qualityNow = settings.quality;
 /** The Graphics setting changed: new resolution range and shadows (materials recompile for the shadow change). */
@@ -98,13 +99,28 @@ function applyQualitySetting(q) {
   }
 }
 
-function resize() {
-  renderer.setSize(innerWidth, innerHeight, false);
-  camera.aspect = innerWidth / Math.max(1, innerHeight);
+// The picture's size and shape come from the canvas as it is on screen, not from innerWidth/innerHeight: on phones
+// those can be out of date for a moment (the installed app opening while the phone turns to landscape, turning from
+// portrait, going full screen, the address bar sliding away), and a camera left with the old shape stretches the
+// picture to fit. A ResizeObserver follows the canvas, with a check twice a second in case a change is missed.
+function fitView(force = false) {
+  const r = canvas.getBoundingClientRect();
+  const w = Math.round(r.width) || innerWidth, h = Math.round(r.height) || innerHeight;
+  if (!force && w === viewW && h === viewH) return false;
+  viewW = w; viewH = h;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / Math.max(1, h);
   camera.updateProjectionMatrix();
+  return true;
 }
+const resize = () => fitView();
 addEventListener('resize', resize);
-resize();
+addEventListener('orientationchange', () => { resize(); setTimeout(resize, 250); setTimeout(resize, 700); });
+visualViewport?.addEventListener('resize', resize);
+document.addEventListener('fullscreenchange', () => setTimeout(resize, 50));
+if (typeof ResizeObserver !== 'undefined') new ResizeObserver(resize).observe(canvas);
+setInterval(resize, 500);
+fitView(true);
 
 // Developer-only bowling physics overlay (?debug=physics). Also unlocks all ten bowling speeds.
 const physicsDebug = physicsDebugEnabled() ? new PhysicsDebug(stadium) : null;
@@ -157,7 +173,7 @@ if ('serviceWorker' in navigator && (!/^(localhost|127\.)/.test(location.hostnam
 
 // Debug / automated-test hooks (harmless in normal play).
 window.__game = {
-  app, stadium, cameras, view, renderer, input, keyboard, touch, syncTouch, governor,
+  app, stadium, cameras, view, renderer, input, keyboard, touch, syncTouch, governor, camera, fitView,
   /** Advance the game by `sec` seconds of simulated frames without rendering. */
   step(sec = 1) {
     for (let i = 0; i < Math.round(sec * 60); i++) { input.update(); const c = app.update(1 / 60); stadium.update(1 / 60, i / 60); cameras.update(1 / 60, c || {}); }
