@@ -97,7 +97,7 @@ export class MatchView {
     setBallLook(ball, wear);
   }
 
-  /** body: a rigged model to wear instead of the built-in body (see RiggedBody), e.g. 'batsman'. */
+  /** body: a rigged model to wear instead of the built-in body (see RiggedBody), e.g. 'fielder'. */
   modelFor(player, team, role, body = null) {
     const whites = this.look.whites && role !== 'umpire';
     const key = `${player?.id || role}:${role}${whites ? ':whites' : ''}${body ? ':' + body : ''}`;
@@ -115,10 +115,10 @@ export class MatchView {
   hideAll() { for (const m of this.models.values()) m.root.visible = false; this.active.clear(); }
 
   /**
-   * Attach to a new delivery: decide which models are on the field. batterBody: a rigged model for both batters
-   * (the player's own side when they bat), or null for the built-in ones.
+   * Attach to a new delivery: decide which models are on the field. Batters, the bowler and the fielders wear the
+   * player model and the keeper the keeper model, each in their team's kit (batterBody: null for built-in batters).
    */
-  bind(sim, { battingTeam, bowlingTeam, batterBody = null }) {
+  bind(sim, { battingTeam, bowlingTeam, batterBody = 'fielder' }) {
     this.sim = sim;
     this.hideAll();
     this.view.clear();

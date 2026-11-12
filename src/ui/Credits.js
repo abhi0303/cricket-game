@@ -12,15 +12,11 @@ export const CREDITS = [
     url: 'https://sketchfab.com/3d-models/cricket-ball-sports-white-f7fb5ae0d11e4d37a2d9ebccfcba5592', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
   },
   {
-    what: 'Batsman', title: 'Virat Kohli Cricket Batting Animation - Low Poly', author: 'bhagathartworks', authorUrl: 'https://sketchfab.com/bhagathartworks',
-    url: 'https://sketchfab.com/3d-models/virat-kohli-cricket-batting-animation-low-poly-a21f5e7ee14f4b6aa5cf6c94a1016932', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
-  },
-  {
     what: 'Keeper', title: 'Stylized Cricketer', author: 'kanesk06', authorUrl: 'https://sketchfab.com/kanesk06',
     url: 'https://sketchfab.com/3d-models/stylized-cricketer-8bb84d0f58dd4dac9d85d3a2e02c176b', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
   },
   {
-    what: 'Fielders', title: 'indian male character', author: 'Aashutosh Dabhade', authorUrl: 'https://sketchfab.com/adabhade17',
+    what: 'Players', title: 'indian male character', author: 'Aashutosh Dabhade', authorUrl: 'https://sketchfab.com/adabhade17',
     url: 'https://sketchfab.com/3d-models/indian-male-character-0baf0a4bbe314764a8d7b639e8f600ca', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
   },
 ];

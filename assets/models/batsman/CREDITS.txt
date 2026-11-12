@@ -1,5 +1,0 @@
-The batsman in this folder (batsman.glb, body.jpg) is based on a model by bhagathartworks, adapted for the game
-(its animations and bat removed, set in its bind pose, the texture resized) by scripts/batsman-model.html:
-
-This work is based on "Virat Kohli Cricket Batting Animation - Low Poly" (https://sketchfab.com/3d-models/virat-kohli-cricket-batting-animation-low-poly-a21f5e7ee14f4b6aa5cf6c94a1016932)
-by bhagathartworks (https://sketchfab.com/bhagathartworks) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

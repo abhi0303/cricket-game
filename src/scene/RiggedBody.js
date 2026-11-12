@@ -3,12 +3,11 @@
 // skeleton, and then the model's hands are pulled onto the same places as the player's hands (on the bat grips)
 // and its feet onto the same places on the ground with two-bone IK, so the model's own proportions don't matter.
 //
-// The batsman (assets/models/batsman, made by scripts/batsman-model.html) is "Virat Kohli Cricket Batting
-// Animation - Low Poly" by bhagathartworks, CC BY 4.0: a low-poly body on a Mixamo skeleton. The keeper
-// (assets/models/keeper) is "Stylized Cricketer" by kanesk06, CC BY 4.0, rigged by scripts/keeper-model.html with
-// the same bone names; his orange shirt and navy trousers are recoloured to the team's kit (whites in Tests).
-// The fielders (assets/models/fielder) are "indian male character" by Aashutosh Dabhade, CC BY 4.0, a Ready Player
-// Me avatar (scripts/fielder-model.html paints out its shirt lettering); its kit is recoloured by texture region.
+// The players (assets/models/fielder: batters, bowlers and fielders) are "indian male character" by Aashutosh
+// Dabhade, CC BY 4.0, a Ready Player Me avatar on a Mixamo-style skeleton (scripts/fielder-model.html paints out
+// its shirt lettering); its kit is recoloured by texture region. The keeper (assets/models/keeper) is "Stylized
+// Cricketer" by kanesk06, CC BY 4.0, rigged by scripts/keeper-model.html with the same bone names; his orange
+// shirt and navy trousers are recoloured to the team's kit (whites in Tests).
 // Every body is sized so the player stands as tall as the built-in ones.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -26,7 +25,6 @@ const CLASS = {
 // recolor: parts of the texture (rect: [x0, y0, x1, y1] as fractions) and in each, which colour becomes which part of
 // the team's kit (PlayerModel.kit: shirt, trousers, trim).
 export const BODIES = {
-  batsman: { glb: 'assets/models/batsman/batsman.glb', tex: 'assets/models/batsman/body.jpg' },
   keeper: {
     glb: 'assets/models/keeper/keeper.glb', tex: 'assets/models/keeper/base.jpg', normal: 'assets/models/keeper/normal.jpg',
     recolor: [{ rect: [0, 0, 1, 1], swaps: [['keeperOrange', 'shirt'], ['navy', 'trousers']] }],
