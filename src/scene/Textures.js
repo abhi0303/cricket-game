@@ -104,33 +104,6 @@ export function pitchBumpTexture() {
   return t;
 }
 
-const ADS = [
-  ['PIXEL COLA', '#e63946', '#ffffff'], ['LOWPOLY BANK', '#1d3557', '#f1faee'], ['SIXER SPORTS', '#ffb703', '#14213d'],
-  ['GREEN WICKET TEA', '#2a9d8f', '#ffffff'], ['BOUNDARY AIR', '#3a86ff', '#ffffff'], ['CREASE MOBILE', '#8338ec', '#ffffff'],
-  ['SPIN CITY RADIO', '#fb5607', '#ffffff'], ['YORKER TYRES', '#222222', '#ffd60a'], ['SWING FM', '#06d6a0', '#073b4c'],
-  ['DUCK & DIVE PIZZA', '#ef476f', '#ffffff'],
-];
-
-/** Advertising boards around the boundary. */
-export function adBoardTexture() {
-  const W = 4096, H = 64;
-  const c = canvas(W, H);
-  const g = c.getContext('2d');
-  const n = ADS.length;
-  const w = W / n;
-  for (let i = 0; i < n; i++) {
-    const [text, bg, fg] = ADS[i];
-    g.fillStyle = bg; g.fillRect(i * w, 0, w, H);
-    g.fillStyle = fg;
-    g.font = '800 40px "Rajdhani", "Arial Narrow", sans-serif';
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText(text, i * w + w / 2, H / 2 + 2);
-    g.fillStyle = 'rgba(255,255,255,0.15)'; g.fillRect(i * w, 0, 3, H);
-  }
-  // Negative repeat mirrors the text so it reads correctly from inside the ring
-  return tex(c, { repeat: [-3, 1] });
-}
-
 /** Lit building windows for the city skyline. */
 export function windowTexture(night = false) {
   const c = canvas(64, 128);

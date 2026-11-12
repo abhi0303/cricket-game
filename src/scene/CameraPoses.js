@@ -87,7 +87,7 @@ export function cinematicCam(kind, ctx = {}) {
     case 'stumpCam': return { pos: [0.6, 0.35, STRIKER_Z + 1.4], target: [0, 0.4, 0], fov: 55 };
     case 'boundary': {
       const a = Math.atan2(ctx.exit?.x ?? ball.x, ctx.exit?.z ?? ball.z);
-      const r = 64.5;   // between the rope (63 m) and the boards (66 m); the stands start at 70 m
+      const r = 64.5;   // between the rope (63 m) and the boundary boards (68.7 m), in front of the stands
       return { pos: [Math.sin(a + 0.25) * r, 2.2, Math.cos(a + 0.25) * r], target: [ball.x, ball.y, ball.z], fov: 42 };
     }
     case 'orbit': {

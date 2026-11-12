@@ -1,15 +1,20 @@
-// The low-poly stadium: ground, pitch, stumps, boundary, stands with an instanced crowd,
-// floodlights, scoreboards and surroundings. Static parts are merged to keep draw calls low.
+// The stadium: the game's own ground, pitch and stumps (where the play happens) inside the 3D stadium model
+// (assets/models/stadium: "Cricket stadium" by Hassnain_ALy, CC BY 4.0, made to the game's scale by
+// scripts/stadium-model.html): its bowl of stands, boundary boards and rope, floodlight towers and scoreboard. The
+// stands are seated here with rows of seats and an instanced crowd in the model's colour sections, the scoreboard
+// shows the match, and the floodlights glow at night. Sightscreens, sky, lights and the scenery beyond complete it.
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { GeoBuilder, lambert } from './GeoBuilder.js';
-import { outfieldTexture, pitchTexture, pitchBumpTexture, adBoardTexture, ScoreboardTexture, glowTexture } from './Textures.js';
+import { outfieldTexture, pitchTexture, pitchBumpTexture, ScoreboardTexture, glowTexture } from './Textures.js';
 import { buildScenery } from './Environment.js';
-import { PITCH, BOUNDARY_RADIUS } from '../game/BallPhysics.js';
+import { PITCH } from '../game/BallPhysics.js';
 import { NetArea } from './NetArea.js';
 
+// Two settings for the same stadium: the grass's mowing colours and what lies beyond the stands.
 export const STADIUMS = {
-  harbour: { label: 'Harbour Oval', grass: ['#4c9a3b', '#58a845'], concrete: '#cfd5df', seat: ['#2f6fd6', '#e7edf6', '#f2c94c'], roof: '#f4f6fa', rope: '#ffffff', scenery: 'city', upper: true },
-  highland: { label: 'Highland Park', grass: ['#4a8c35', '#56a041'], concrete: '#cbbd9f', seat: ['#b3352e', '#efe7d2', '#3f6b45'], roof: '#7a5638', rope: '#f2c94c', scenery: 'hills', upper: false },
+  harbour: { label: 'Harbour Oval (city)', grass: ['#4c9a3b', '#58a845'], scenery: 'city' },
+  highland: { label: 'Highland Park (hills)', grass: ['#4a8c35', '#56a041'], scenery: 'hills' },
 };
 
 export const TIMES = {
@@ -18,9 +23,27 @@ export const TIMES = {
   night: { label: 'Night', sky: ['#040814', '#16213d'], sun: { elev: 66, azim: 15, color: '#f2f6ff', intensity: 2.4 }, hemi: ['#6d7fa8', '#1e2c20', 0.55], fog: '#121a2f', lights: 1, exposure: 1.05 },
 };
 
-const SECTORS = [[12, 42], [48, 132], [138, 168], [192, 222], [228, 312], [318, 348]];
-const FLOOD_ANGLES = [45, 135, 225, 315];
 const DEG = Math.PI / 180;
+const MODEL = { glb: 'assets/models/stadium/stadium.glb', meta: 'assets/models/stadium/stadium.json' };
+// Seating on the model's stands: rows from the front of the bowl, a seat every SEAT_GAP metres along each row.
+// The first `seats` rows get modelled seats; the rows above, up to the top of the model's seating, are drawn as rows
+// of seats in the section's colour (they're far from every camera). The crowd fills a share of all of them, thinner
+// higher up.
+const SEATING = {
+  rowGap: 1.0, seatGap: 0.62,
+  seats: { low: 12, medium: 24, high: 36 },
+  crowd: { low: [0.3, 0.06], medium: [0.5, 0.16], high: [0.65, 0.26] },   // [near rows, upper rows]
+};
+const SIGHTSCREEN_Z = 71;    // between the boundary boards (68.7 m) and the front of the stands
+
+let modelLoad = null;        // the stadium model, loaded once: Promise<{ scene, meta }>
+function loadModel() {
+  if (!modelLoad) {
+    modelLoad = Promise.all([new GLTFLoader().loadAsync(MODEL.glb), fetch(MODEL.meta).then(r => r.json())])
+      .then(([gltf, meta]) => ({ scene: gltf.scene, meta }));
+  }
+  return modelLoad;
+}
 
 export class StadiumScene {
   constructor(renderer, { stadium = 'harbour', timeOfDay = 'day', quality = 'medium' } = {}) {
@@ -44,25 +67,152 @@ export class StadiumScene {
     this.S = STADIUMS[this.stadiumId];
     this.root = new THREE.Group();
     this.scene.add(this.root);
+    this.crowd = null; this.glows = []; this.lampMat = null; this.boardMat = null;
     this.buildLights();
     this.buildGround();
     this.buildPitch();
     this.buildStumps();
-    this.buildBoundary();
-    this.buildStands();
-    this.buildFloodlights();
-    this.buildFeatures();
-    this.scenery = buildScenery(this.S.scenery, this.mat, this.quality);
+    this.buildSightscreens();
+    // the model's scoreboard screen has glTF texture coordinates (not flipped): its own texture of the same canvas
+    if (!this.screenTex) {
+      this.screenTex = new THREE.CanvasTexture(this.scoreboard.canvas);
+      this.screenTex.flipY = false;
+      this.screenTex.colorSpace = THREE.SRGBColorSpace;
+      this.screenTex.anisotropy = 8;
+    }
+    this.screenMat = new THREE.MeshBasicMaterial({ map: this.screenTex, fog: false });
+    this.scenery = buildScenery(this.S.scenery, this.mat, this.quality, { inner: 200 });   // all of it beyond the stands
     this.root.add(this.scenery.group);
     this.setTimeOfDay(timeOfDay);
+    this.buildStadiumModel();
+  }
+
+  /** The stadium model (loaded once, shared by every build): added when it arrives, then seated and lit. */
+  buildStadiumModel() {
+    const build = this.buildNo = (this.buildNo || 0) + 1;
+    loadModel().then(({ scene, meta }) => {
+      if (build !== this.buildNo) return;          // rebuilt meanwhile (another stadium or time of day)
+      const model = scene.clone();
+      model.traverse(o => { o.userData.shared = true; if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
+      const screen = model.getObjectByName('Scoreboard_screen');
+      if (screen) {
+        // the screen's own coordinates cover only part of the model's picture: stretch the match display over all of it
+        const g = screen.geometry.clone(), uv = g.attributes.uv;
+        let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+        for (let i = 0; i < uv.count; i++) { u0 = Math.min(u0, uv.getX(i)); u1 = Math.max(u1, uv.getX(i)); v0 = Math.min(v0, uv.getY(i)); v1 = Math.max(v1, uv.getY(i)); }
+        for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) - u0) / (u1 - u0), (v1 - uv.getY(i)) / (v1 - v0));
+        screen.geometry = g;
+        screen.material = this.screenMat;
+        screen.userData.shared = false;
+      }
+      this.lampMat = model.getObjectByName('Emissive')?.material || null;
+      this.boardMat = model.getObjectByName('Boundary_texture')?.material || null;
+      if (this.boardMat && this.boardMat.map) this.boardMat.emissiveMap = this.boardMat.map;
+      this.model = model;
+      this.root.add(model);
+      this.buildSeating(meta);
+      this.buildGlows(meta.lights);
+      this.setTimeOfDay(this.timeId);
+    }).catch(err => console.warn('Stadium model not loaded.', err));
+  }
+
+  /**
+   * Rows of seats up the stands, following their rake, in the model's colour sections (the gaps between sections
+   * are the aisles): modelled seats in the near rows, coloured rows above; and a crowd in a share of them.
+   */
+  buildSeating(meta) {
+    const { a, b } = meta.rake, q = this.quality;
+    const near = SEATING.seats[q] ?? SEATING.seats.medium;
+    const [dNear, dFar] = SEATING.crowd[q] ?? SEATING.crowd.medium;
+    const r0 = meta.seating.r0 + 3.5, r1 = meta.seating.r1;
+    const seats = [], crowd = [];
+    const strips = { P: [], C: [] };
+    const col = new THREE.Color();
+    for (let i = 0, r = r0; r <= r1; i++, r = r0 + i * SEATING.rowGap) {
+      const y = a + b * r;
+      for (const s of meta.sections) {
+        const inset = 0.6 / r;                          // a little aisle at each end
+        const a0 = s.a0 - 0.035 + inset, a1 = s.a1 + 0.035 - inset;
+        const n = Math.floor((a1 - a0) * r / SEATING.seatGap);
+        if (i < near) {
+          for (let k = 0; k < n; k++) {
+            const st = { a: a0 + (k + 0.5) * (a1 - a0) / n, r, y, color: s.color };
+            seats.push(st);
+            if (Math.random() < dNear) crowd.push(st);
+          }
+        } else {
+          // a row of seats as one coloured strip: the seat backs (a low band) and the seat pads in front
+          const segs = Math.max(2, Math.ceil((a1 - a0) / (2 * DEG)));
+          col.set(s.color).multiplyScalar(i % 2 ? 0.86 : 0.94);
+          for (let k = 0; k < segs; k++) {
+            const u0 = a0 + (a1 - a0) * k / segs, u1 = a0 + (a1 - a0) * (k + 1) / segs;
+            const p = (rr, uu, yy) => [Math.sin(uu) * rr, yy, Math.cos(uu) * rr];
+            const quad = (A, B, C, D) => { strips.P.push(...A, ...B, ...C, ...A, ...C, ...D); for (let v = 0; v < 6; v++) strips.C.push(col.r, col.g, col.b); };
+            quad(p(r + 0.2, u1, y + 0.42), p(r + 0.2, u0, y + 0.42), p(r + 0.22, u0, y + 0.85), p(r + 0.22, u1, y + 0.85));   // backs
+            quad(p(r - 0.2, u1, y + 0.42), p(r - 0.2, u0, y + 0.42), p(r + 0.2, u0, y + 0.42), p(r + 0.2, u1, y + 0.42));     // pads
+          }
+          for (let k = 0; k < n; k++) if (Math.random() < dFar) crowd.push({ a: a0 + (k + 0.5) * (a1 - a0) / n, r, y });
+        }
+      }
+    }
+    // modelled seats: the pad and the back (two quads), facing the field
+    const geo = new THREE.BufferGeometry();
+    const P = [
+      -0.22, 0.42, -0.2, 0.22, 0.42, -0.2, 0.22, 0.42, 0.2, -0.22, 0.42, -0.2, 0.22, 0.42, 0.2, -0.22, 0.42, 0.2,
+      -0.22, 0.42, -0.2, 0.22, 0.85, -0.22, 0.22, 0.42, -0.2, -0.22, 0.42, -0.2, -0.22, 0.85, -0.22, 0.22, 0.85, -0.22,
+    ];
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+    geo.computeVertexNormals();
+    const mesh = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ color: '#ffffff', side: THREE.DoubleSide }), seats.length);
+    const m = new THREE.Matrix4(), qt = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1), c = new THREE.Color();
+    seats.forEach((st, i) => {
+      qt.setFromAxisAngle(up, st.a + Math.PI);
+      m.compose(new THREE.Vector3(Math.sin(st.a) * st.r, st.y, Math.cos(st.a) * st.r), qt, one);
+      mesh.setMatrixAt(i, m);
+      mesh.setColorAt(i, c.set(st.color).multiplyScalar(0.88 + 0.12 * ((i * 7919) % 13) / 13));
+    });
+    mesh.name = 'seats';
+    mesh.frustumCulled = false;
+    const sg = new THREE.BufferGeometry();
+    sg.setAttribute('position', new THREE.Float32BufferAttribute(strips.P, 3));
+    sg.setAttribute('color', new THREE.Float32BufferAttribute(strips.C, 3));
+    sg.computeVertexNormals();
+    const upper = new THREE.Mesh(sg, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+    upper.name = 'upperSeats';
+    this.root.add(mesh, upper);
+    this.buildCrowd(crowd, 1);
+  }
+
+  /** A glow at each floodlight panel (shows in the evening and at night). */
+  buildGlows(lights) {
+    for (const [x, y, z] of lights) {
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: '#fff7dd', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+      glow.scale.set(80, 52, 1);
+      glow.position.set(x * 0.99, y, z * 0.99);
+      this.glows.push(glow);
+      this.root.add(glow);
+    }
+  }
+
+  /** Sightscreens at both ends: dark behind a white ball, white behind a red one (Tests). */
+  buildSightscreens() {
+    const screens = new GeoBuilder(), legs = new GeoBuilder();
+    for (const z of [SIGHTSCREEN_Z, -SIGHTSCREEN_Z]) {
+      screens.box(15, 7.5, 0.4, '#ffffff', [0, 3.75 + 0.6, z]);
+      for (const x of [-6.5, 0, 6.5]) legs.box(0.25, 0.6, 0.25, '#555c66', [x, 0.3, z]);
+    }
+    this.sightMat = new THREE.MeshLambertMaterial({ vertexColors: true, color: '#1d222b' });
+    this.root.add(screens.build(this.sightMat), legs.build(this.mat));
+    this.setSightscreens(this.sightKind || 'black');
   }
 
   disposeTree(obj) {
     obj.traverse(o => {
+      if (o.userData.shared) return;            // the stadium model's geometry and materials are kept for the next build
       if (o.geometry) o.geometry.dispose();
       if (o.material && o.material !== this.mat) {
         const mats = Array.isArray(o.material) ? o.material : [o.material];
-        for (const m of mats) { if (m.map && m.map !== this.scoreboard.texture) m.map.dispose(); m.dispose(); }
+        for (const m of mats) { if (m.map && m.map !== this.scoreboard.texture && m.map !== this.screenTex) m.map.dispose(); m.dispose(); }
       }
     });
   }
@@ -138,9 +288,10 @@ export class StadiumScene {
     this.renderer.toneMappingExposure = T.exposure;
     const lightsOn = T.lights;
     if (this.lampMat) {
-      this.lampMat.color.set(lightsOn ? '#fffbe8' : '#c9ccd2');
-      for (const s of this.glows) { s.visible = lightsOn > 0; s.material.opacity = 0.55 * lightsOn + 0.2; }
+      this.lampMat.emissive.set('#fffbe8');
+      this.lampMat.emissiveIntensity = lightsOn ? 1.5 + 1.5 * lightsOn : 0.15;
     }
+    for (const s of this.glows) { s.visible = lightsOn > 0; s.material.opacity = 0.55 * lightsOn + 0.2; }
     if (this.boardMat) this.boardMat.emissive.set(lightsOn ? '#555555' : '#000000');
     if (this.screenMat) this.screenMat.color.set('#ffffff');
     if (this.scenery) this.scenery.setNight(id === 'night', id === 'evening');
@@ -157,11 +308,6 @@ export class StadiumScene {
     ground.receiveShadow = true;
     ground.name = 'outfield';
     this.root.add(ground);
-    // Outer concourse ring
-    const ring = new THREE.Mesh(new THREE.RingGeometry(75, 140, 64, 1).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: this.S.scenery === 'city' ? '#8d949c' : '#6f8c4f' }));
-    ring.position.y = -0.02;
-    ring.receiveShadow = true;
-    this.root.add(ring);
   }
 
   buildPitch() {
@@ -251,105 +397,7 @@ export class StadiumScene {
     }
   }
 
-  buildBoundary() {
-    const R = BOUNDARY_RADIUS;
-    const pts = [];
-    for (let i = 0; i <= 200; i++) { const a = (i / 200) * Math.PI * 2; pts.push(new THREE.Vector3(Math.sin(a) * R, 0.07, Math.cos(a) * R)); }
-    const rope = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), 200, 0.075, 5, true), new THREE.MeshLambertMaterial({ color: this.S.rope }));
-    rope.castShadow = false;
-    this.root.add(rope);
-    // Advertising boards
-    const tex = adBoardTexture();
-    this.boardMat = new THREE.MeshLambertMaterial({ map: tex, emissive: '#000000', emissiveMap: tex, side: THREE.DoubleSide });
-    const boards = new THREE.Mesh(new THREE.CylinderGeometry(66, 66, 0.95, 120, 1, true), this.boardMat);
-    boards.position.y = 0.48;
-    this.root.add(boards);
-    const backing = new GeoBuilder();
-    backing.add(new THREE.CylinderGeometry(66.25, 66.25, 0.95, 120, 1, true), '#2a2f3a', { pos: [0, 0.48, 0] });
-    this.root.add(backing.build(this.mat));
-  }
-
-  // ------------------------------------------------------------------ stands & crowd
-  buildStands() {
-    const gb = new GeoBuilder();
-    const seats = [];
-    const S = this.S;
-    const tiers = [{ r0: 70, rows: 24, depth: 0.88, rise: 0.44, base: 1.3 }];
-    if (S.upper) tiers.push({ r0: 93.5, rows: 15, depth: 0.88, rise: 0.6, base: 14.2 });
-    for (const [d0, d1] of SECTORS) {
-      const a0 = d0 * DEG, a1 = d1 * DEG;
-      for (const t of tiers) this.stepped(gb, a0, a1, t, seats);
-      // Roof canopy over the top tier
-      const t = tiers[tiers.length - 1];
-      const rTop = t.r0 + t.rows * t.depth;
-      const hTop = t.base + t.rows * t.rise;
-      this.roof(gb, a0, a1, rTop - (S.upper ? 13 : 9), rTop + 1.2, hTop + 4.5, hTop + 6.5);
-    }
-    const mesh = gb.build(this.mat);
-    mesh.castShadow = this.quality === 'high';
-    mesh.receiveShadow = this.quality !== 'low';
-    mesh.name = 'stands';
-    this.root.add(mesh);
-    this.buildCrowd(seats);
-  }
-
-  stepped(gb, a0, a1, { r0, rows, depth, rise, base }, seats) {
-    const S = this.S;
-    const segs = Math.max(4, Math.round((a1 - a0) / (2.2 * DEG)));
-    const P = [], C = [];
-    const pt = (r, a, y) => [Math.sin(a) * r, y, Math.cos(a) * r];
-    const quad = (A, B, Cc, D, col) => { P.push(...A, ...B, ...Cc, ...A, ...Cc, ...D); C.push(col, col); };
-    const concrete = S.concrete;
-    for (let i = 0; i < rows; i++) {
-      const r = r0 + i * depth, y0 = base + i * rise, y1 = y0 + rise;
-      for (let s = 0; s < segs; s++) {
-        const b0 = a0 + ((a1 - a0) * s) / segs, b1 = a0 + ((a1 - a0) * (s + 1)) / segs;
-        const block = Math.floor(s / 3) + Math.floor(i / 6);
-        const seat = S.seat[block % S.seat.length];
-        // riser (front face of the step)
-        quad(pt(r, b1, y0), pt(r, b0, y0), pt(r, b0, y1), pt(r, b1, y1), concrete);
-        // tread (seats)
-        quad(pt(r, b1, y1), pt(r, b0, y1), pt(r + depth, b0, y1), pt(r + depth, b1, y1), seat);
-        if (Math.random() < 0.92) seats.push({ a: (b0 + b1) / 2 + (Math.random() - 0.5) * 0.004, r: r + depth * 0.45, y: y1, row: i });
-      }
-    }
-    // back wall + sides
-    const rEnd = r0 + rows * depth, yEnd = base + rows * rise;
-    for (let s = 0; s < segs; s++) {
-      const b0 = a0 + ((a1 - a0) * s) / segs, b1 = a0 + ((a1 - a0) * (s + 1)) / segs;
-      quad(pt(rEnd, b0, 0), pt(rEnd, b1, 0), pt(rEnd, b1, yEnd + 1.2), pt(rEnd, b0, yEnd + 1.2), '#9aa1ab');
-      quad(pt(rEnd - 0.3, b1, yEnd), pt(rEnd - 0.3, b0, yEnd), pt(rEnd - 0.3, b0, yEnd + 1.2), pt(rEnd - 0.3, b1, yEnd + 1.2), concrete);
-      // front wall under the first row
-      quad(pt(r0, b1, 0), pt(r0, b0, 0), pt(r0, b0, base), pt(r0, b1, base), '#7c8796');
-    }
-    for (const a of [a0, a1]) {
-      const flip = a === a0 ? 1 : -1;
-      const A = pt(r0, a, 0), B = pt(rEnd, a, 0), Cc = pt(rEnd, a, yEnd + 1.2), D = pt(r0, a, base);
-      if (flip > 0) { P.push(...A, ...Cc, ...B, ...A, ...D, ...Cc); } else { P.push(...A, ...B, ...Cc, ...A, ...Cc, ...D); }
-      C.push('#aeb5bf', '#aeb5bf');
-    }
-    gb.tris(P, C);
-  }
-
-  roof(gb, a0, a1, rIn, rOut, yIn, yOut) {
-    const segs = Math.max(4, Math.round((a1 - a0) / (4 * DEG)));
-    const P = [], C = [];
-    const pt = (r, a, y) => [Math.sin(a) * r, y, Math.cos(a) * r];
-    for (let s = 0; s < segs; s++) {
-      const b0 = a0 + ((a1 - a0) * s) / segs, b1 = a0 + ((a1 - a0) * (s + 1)) / segs;
-      const A = pt(rIn, b0, yIn), B = pt(rIn, b1, yIn), Cc = pt(rOut, b1, yOut), D = pt(rOut, b0, yOut);
-      P.push(...A, ...Cc, ...B, ...A, ...D, ...Cc); C.push(this.S.roof, this.S.roof);
-      P.push(...A, ...B, ...Cc, ...A, ...Cc, ...D); C.push('#7d8590', '#7d8590');
-      if (s % 2 === 0) {
-        const am = (b0 + b1) / 2;
-        gb.box(0.35, yOut, 0.35, '#8e96a1', [Math.sin(am) * (rOut - 0.5), yOut / 2, Math.cos(am) * (rOut - 0.5)]);
-      }
-    }
-    gb.tris(P, C);
-  }
-
-  buildCrowd(seats) {
-    const density = { low: 0.32, medium: 0.6, high: 0.85 }[this.quality] ?? 0.6;
+  buildCrowd(seats, density = 0.5) {
     const chosen = seats.filter(() => Math.random() < density);
     const n = chosen.length;
     // Body (torso + legs block) and head as two instanced meshes
@@ -390,96 +438,7 @@ export class StadiumScene {
     if (this.netsOn) bodies.visible = heads.visible = false;
   }
 
-  // ------------------------------------------------------------------ floodlights / features
-  buildFloodlights() {
-    const gb = new GeoBuilder();
-    const lamps = new GeoBuilder();
-    this.glows = [];
-    for (const deg of FLOOD_ANGLES) {
-      const a = deg * DEG, r = 101;
-      const x = Math.sin(a) * r, z = Math.cos(a) * r;
-      const H = 52;
-      gb.cyl(0.7, 1.4, H, 6, '#9aa3ad', [x, H / 2, z]);
-      // lattice-ish cross bars
-      for (let h = 6; h < H - 4; h += 6) gb.box(2.4, 0.18, 0.18, '#7f8893', [x, h, z], [0, -a, 0.6]);
-      // head panel tilted to face the centre
-      const head = new THREE.Object3D();
-      head.position.set(x, H + 2.5, z);
-      head.lookAt(0, 0, 0);
-      head.updateMatrix();
-      const panel = new THREE.BoxGeometry(11, 6, 0.6);
-      gb.add(panel, '#59606a', { matrix: head.matrix });
-      for (let i = 0; i < 5; i++) for (let j = 0; j < 3; j++) {
-        const lm = new THREE.Matrix4().makeTranslation(-4.4 + i * 2.2, -1.8 + j * 1.8, 0.35);
-        lamps.add(new THREE.BoxGeometry(1.7, 1.4, 0.15), '#ffffff', { matrix: head.matrix.clone().multiply(lm) });
-      }
-      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: '#fff7dd', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
-      glow.scale.set(34, 22, 1);
-      glow.position.set(x * 0.985, H + 2.5, z * 0.985);
-      this.glows.push(glow);
-      this.root.add(glow);
-    }
-    const towers = gb.build(this.mat);
-    towers.castShadow = this.quality !== 'low';
-    this.root.add(towers);
-    this.lampMat = new THREE.MeshBasicMaterial({ vertexColors: true, color: '#ffffff', fog: false });
-    this.root.add(lamps.build(this.lampMat));
-  }
-
-  buildFeatures() {
-    const gb = new GeoBuilder();
-    // Sightscreens at both ends: dark behind a white ball, white behind a red one (Tests)
-    const screens = new GeoBuilder();
-    for (const z of [68.5, -68.5]) {
-      screens.box(15, 7.5, 0.4, '#ffffff', [0, 3.75 + 0.6, z]);
-      for (const x of [-6.5, 0, 6.5]) gb.box(0.25, 0.6, 0.25, '#555c66', [x, 0.3, z]);
-    }
-    this.sightMat = new THREE.MeshLambertMaterial({ vertexColors: true, color: '#1d222b' });
-    this.root.add(screens.build(this.sightMat));
-    this.setSightscreens(this.sightKind || 'black');
-    // Scoreboard structure at the +z end
-    const sbZ = 86, sbY = 15;
-    gb.box(30, 2, 3, '#3a414c', [0, sbY - 8.6, sbZ + 1]);
-    for (const x of [-12, 12]) gb.box(1.4, sbY, 1.4, '#59626e', [x, sbY / 2 - 2, sbZ + 1]);
-    gb.box(30.5, 16, 1.2, '#20252e', [0, sbY, sbZ + 0.7]);
-    // Pavilion at the -z end
-    const pz = -84;
-    gb.box(34, 10, 14, '#e8e0cf', [0, 5, pz]);
-    gb.box(34.6, 0.6, 14.6, '#c7b99a', [0, 10.3, pz]);
-    for (let i = -3; i <= 3; i++) gb.box(3.2, 3.2, 0.3, '#5a7fa8', [i * 4.6, 6.2, pz + 7.05]);
-    for (let i = -3; i <= 3; i++) gb.box(3.2, 2.6, 0.3, '#3c5a7e', [i * 4.6, 2.2, pz + 7.05]);
-    // Pitched roof
-    const roof = new THREE.CylinderGeometry(0.1, 9.6, 5, 4, 1).rotateY(Math.PI / 4).scale(2.6, 1, 1.05);
-    gb.add(roof, this.S.roof, { pos: [0, 13.2, pz] });
-    gb.box(0.4, 4, 0.4, '#ffffff', [0, 17.5, pz]);
-    // Dugouts on both sides
-    for (const side of [1, -1]) {
-      const x = side * 68.5;
-      gb.box(1.2, 2.4, 9, '#2c3440', [x + side * 1.6, 1.2, 0]);
-      gb.box(3.6, 0.25, 9.4, '#f4f4f4', [x, 2.5, 0]);
-      gb.box(1.0, 0.5, 8, '#6b4f3a', [x + side * 0.9, 0.45, 0]);
-    }
-    this.root.add(gb.build(this.mat));
-    // Pavilion flag
-    this.flag = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.3, 6, 1), new THREE.MeshLambertMaterial({ color: '#e63946', side: THREE.DoubleSide }));
-    this.flag.position.set(1.15, 19, pz);
-    this.root.add(this.flag);
-
-    // Big screens
-    this.screenMat = new THREE.MeshBasicMaterial({ map: this.scoreboard.texture, fog: false });
-    const screen = new THREE.Mesh(new THREE.PlaneGeometry(28, 14), this.screenMat);
-    screen.position.set(0, sbY, sbZ);
-    screen.rotation.y = Math.PI;
-    this.root.add(screen);
-    const screen2 = new THREE.Mesh(new THREE.PlaneGeometry(16, 8), this.screenMat);
-    screen2.position.set(-Math.sin(90 * DEG) * 92, 20, 0);
-    screen2.rotation.y = Math.PI / 2;
-    this.root.add(screen2);
-    const s2frame = new GeoBuilder().box(17, 9, 0.6, '#20252e', [-92.4, 20, 0]).build(this.mat);
-    this.root.add(s2frame);
-  }
-
-  updateScoreboard(info) { this.scoreboard.draw(info); }
+  updateScoreboard(info) { this.scoreboard.draw(info); if (this.screenTex) this.screenTex.needsUpdate = true; }
 
   setCrowdTeamColor(color) { this.teamCrowdColor = color; }
 
@@ -497,7 +456,7 @@ export class StadiumScene {
     if (this.crowd) this.crowd.bodies.visible = this.crowd.heads.visible = !on;
   }
 
-  /** Delivery frame orientation: 0 = bowling from the pavilion (-z) end, 1 = from the scoreboard (+z) end. */
+  /** Delivery frame orientation: 0 = bowling from the -z end, 1 = from the scoreboard (+z) end. */
   setEnds(bowlingEnd) {
     this.frame.rotation.y = bowlingEnd ? Math.PI : 0;
     this.frame.updateMatrixWorld(true);
@@ -511,11 +470,6 @@ export class StadiumScene {
     u.value += (this.cheerTarget - u.value) * Math.min(1, dt * 4);
     this.cheerTarget = Math.max(0, this.cheerTarget - dt * 0.35);
     this.updateStumps(dt * (this.stumpTimeScale ?? 1));
-    if (this.flag) {
-      const p = this.flag.geometry.attributes.position;
-      for (let i = 0; i < p.count; i++) { const x = p.getX(i) + 1.1; p.setZ(i, Math.sin(t * 4 + x * 2.4) * 0.12 * x); }
-      p.needsUpdate = true;
-    }
     if (this.scenery) this.scenery.update(dt, t);
   }
 }

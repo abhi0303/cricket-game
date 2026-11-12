@@ -1,0 +1,162 @@
+<!doctype html>
+<!--
+  Stadium model builder. Turns the downloaded "Cricket stadium" by Hassnain_ALy (CC-BY-4.0; models-src/cricket_stadium)
+  into what the game loads:
+    assets/models/stadium/stadium.glb   the bowl of stands, its outer structure, the boundary boards and rope, the
+                                        floodlight towers and the scoreboard, in the game's metres: scaled so the
+                                        model's rope is the game's boundary (63 m), turned so the scoreboard is behind
+                                        the +z end, the boards brought down to a real board's height, and parts that
+                                        share a material merged
+    assets/models/stadium/stadium.json  what the game needs to seat a crowd: the stands' rake (height = a + b * r),
+                                        how far out the model's seating went, its colour sections round the ground,
+                                        and where the floodlight panels are
+  Left out: the model's pitch, stumps and ground (the game has its own, where the play happens), and its seat blocks:
+  the model is toy-scale next to its field, so at the game's scale each seat would be a 13 m chair. The game seats
+  normal-sized rows of seats and a crowd on the stands instead, in the model's colours.
+  Open from a local server at the repo root.
+-->
+<meta charset="utf-8">
+<title>Stadium model</title>
+<style>body { background: #1c1f24; color: #cfd6e0; font: 14px system-ui, sans-serif; margin: 12px; } canvas { width: 1200px; height: 450px; }</style>
+<p id="info">Building…</p>
+<canvas id="view" width="2400" height="900"></canvas>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+const SRC = '/models-src/cricket_stadium/scene.gltf';
+const BOUNDARY = 63;          // the game's boundary radius (m): the model's rope goes here
+const BOARD_HEIGHT = 1.15;    // boundary boards (the model's would be 6 m at this scale)
+// the model's pitch, square, ground and stumps, and its seat blocks (the loader's names drop the dots)
+const DROP = /Pitch|Material_?\.?003|Ground_?texture|^Cylinder_?\.?00\d|Chairs/;
+
+/** The centre of every separate piece of an indexed geometry (pieces joined where they share a position). */
+function pieceCentres(geo) {
+  const idx = geo.index.array, n = geo.attributes.position.count, p = geo.attributes.position;
+  const parent = new Int32Array(n).map((_, i) => i);
+  const find = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  for (let i = 0; i < idx.length; i += 3) for (const j of [1, 2]) { const a = find(idx[i]), b = find(idx[i + j]); if (a !== b) parent[a] = b; }
+  const spot = new Map();
+  for (let i = 0; i < n; i++) {
+    const key = `${p.getX(i).toFixed(3)},${p.getY(i).toFixed(3)},${p.getZ(i).toFixed(3)}`;
+    if (spot.has(key)) { const a = find(i), b = find(spot.get(key)); if (a !== b) parent[a] = b; } else spot.set(key, i);
+  }
+  const acc = new Map();
+  for (let i = 0; i < n; i++) {
+    const r = find(i); let a = acc.get(r);
+    if (!a) { a = new THREE.Vector3(); a.n = 0; acc.set(r, a); }
+    a.x += p.getX(i); a.y += p.getY(i); a.z += p.getZ(i); a.n++;
+  }
+  return [...acc.values()].map(a => a.divideScalar(a.n));
+}
+
+const g = await new GLTFLoader().loadAsync(SRC);
+g.scene.updateMatrixWorld(true);
+const meshes = [];
+g.scene.traverse(o => { if (o.isMesh) meshes.push(o); });
+
+// scale from the rope
+const rope = meshes.find(m => /Rope/.test(m.material.name));
+const rb = new THREE.Box3().setFromObject(rope);
+const ropeR = (rb.max.x - rb.min.x + rb.max.z - rb.min.z) / 4;
+const S = BOUNDARY / ropeR;
+const T = new THREE.Matrix4().makeRotationY(Math.PI).premultiply(new THREE.Matrix4().makeScale(S, S, S));
+const bake = m => m.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(T, m.matrixWorld));
+
+// bake each kept mesh into stadium space, grouped by material; note where the seat blocks were and their colours
+const groups = new Map(), seatBlocks = [];
+let dropped = 0;
+for (const m of meshes) {
+  if (/Chairs_(yellow|red|blue)/.test(m.material.name)) {
+    for (const c of pieceCentres(bake(m))) seatBlocks.push({ a: Math.atan2(c.x, c.z), r: Math.hypot(c.x, c.z), color: '#' + m.material.color.getHexString() });
+  }
+  if (DROP.test(m.name)) { dropped++; continue; }
+  const geo = bake(m);
+  for (const n of Object.keys(geo.attributes)) if (!['position', 'normal', 'uv'].includes(n)) geo.deleteAttribute(n);
+  if (!geo.attributes.uv) geo.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.count * 2), 2));
+  if (/Boundary/.test(m.material.name)) {
+    // boundary boards: from their foot to a real board's height
+    geo.computeBoundingBox();
+    const y0 = geo.boundingBox.min.y, h = geo.boundingBox.max.y - y0, p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) p.setY(i, -0.05 + (p.getY(i) - y0) / h * (BOARD_HEIGHT + 0.05));
+    geo.computeVertexNormals();
+  }
+  const key = m.material.name;
+  if (!groups.has(key)) groups.set(key, { mat: m.material, geos: [] });
+  groups.get(key).geos.push(geo);
+}
+
+const root = new THREE.Group();
+root.name = 'stadium';
+for (const [name, { mat, geos }] of groups) {
+  const geo = mergeGeometries(geos);
+  const m = mat.clone();
+  m.name = name;
+  if (m.roughness < 0.3) m.roughness = 0.6;                 // the glossy blue bowl: no mirror finish
+  if (m.map) m.map.userData.mimeType = 'image/jpeg';
+  const mesh = new THREE.Mesh(geo, m);
+  mesh.name = name.replace(/[^A-Za-z0-9]+/g, '_');
+  root.add(mesh);
+}
+root.updateMatrixWorld(true);
+
+// The stands' rake: sample the bowl's surface along radial lines and fit height = a + b * r.
+const bowl = root.children.find(m => m.name === 'Material_002');
+const ray = new THREE.Raycaster();
+let n = 0, sr = 0, sy = 0, srr = 0, sry = 0;
+for (let th = 0; th < Math.PI * 2; th += Math.PI / 12) {
+  for (let r = 72; r <= 178; r += 0.25) {
+    ray.set(new THREE.Vector3(Math.sin(th) * r, 200, Math.cos(th) * r), new THREE.Vector3(0, -1, 0));
+    const hit = ray.intersectObject(bowl, false)[0];
+    if (!hit) continue;
+    n++; sr += r; sy += hit.point.y; srr += r * r; sry += r * hit.point.y;
+  }
+}
+const b = (n * sry - sr * sy) / (n * srr - sr * sr), a = (sy - b * sr) / n;
+// colour sections round the ground, from the seat blocks' angles (contiguous runs of one colour)
+seatBlocks.sort((x, y) => x.a - y.a);
+const sections = [];
+for (const s of seatBlocks) {
+  const last = sections[sections.length - 1];
+  if (last && last.color === s.color) last.a1 = s.a; else sections.push({ a0: s.a, a1: s.a, color: s.color });
+}
+// floodlight panels: the lamp pieces gathered into one point per tower
+const lamps = pieceCentres(root.children.find(m => m.name === 'Emissive').geometry);
+const lights = [];
+for (const p of lamps) {
+  const near = lights.find(l => l.distanceTo(p) < 25);
+  if (near) { near.add(p.clone().sub(near).divideScalar(++near.n)); } else { const l = p.clone(); l.n = 1; lights.push(l); }
+}
+const round = v => +v.toFixed(3);
+const meta = {
+  rake: { a: round(a), b: round(b) },
+  seating: { r0: round(Math.min(...seatBlocks.map(s => s.r)) - 3), r1: round(Math.max(...seatBlocks.map(s => s.r)) + 3) },
+  sections: sections.map(s => ({ a0: round(s.a0), a1: round(s.a1), color: s.color })),
+  lights: lights.map(l => [round(l.x), round(l.y), round(l.z)]),
+};
+
+const glb = await new GLTFExporter().parseAsync(root, { binary: true, animations: [] });
+const b64 = btoa(Array.from(new Uint8Array(glb), ch => String.fromCharCode(ch)).join(''));
+
+// preview: from above, and from the outfield towards the stands
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('view'), antialias: true });
+r.outputColorSpace = THREE.SRGBColorSpace;
+const show = new THREE.Scene(); show.background = new THREE.Color('#9cc3e8');
+show.add(new THREE.HemisphereLight('#fff', '#5a7a4a', 1.6)); const sun = new THREE.DirectionalLight('#fff', 2.4); sun.position.set(60, 140, 90); show.add(sun);
+const field = new THREE.Mesh(new THREE.CircleGeometry(76, 64).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: '#4c9a3b' }));
+show.add(root, field);
+const cam = new THREE.PerspectiveCamera(45, 1200 / 900, 0.5, 3000);
+r.setScissorTest(true);
+[[[0, 520, 1], [0, 0, 0], 50], [[10, 12, 40], [-10, 14, 120], 60]].forEach(([p, t, fov], i) => {
+  cam.fov = fov; cam.position.set(...p); cam.lookAt(...t); cam.updateProjectionMatrix();
+  r.setViewport(i * 1200, 0, 1200, 900); r.setScissor(i * 1200, 0, 1200, 900); r.render(show, cam);
+});
+const stats = { ropeR: round(ropeR), scale: round(S), dropped, glbKB: Math.round(glb.byteLength / 1024), meta };
+document.getElementById('info').textContent = JSON.stringify(stats);
+window.__stadium = { glb: b64, meta, stats, done: true };
+</script>

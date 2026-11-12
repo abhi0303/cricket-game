@@ -1,0 +1,6 @@
+The stadium in this folder (stadium.glb, stadium.json) is based on a model by Hassnain_ALy, adapted for the game
+(scaled and turned, boundary boards lowered, its pitch, ground and seat blocks left out, parts merged) by
+scripts/stadium-model.html:
+
+This work is based on "Cricket stadium" (https://sketchfab.com/3d-models/cricket-stadium-b4b9964dacc9444e8a265a81fca22afb)
+by Hassnain_ALy (https://sketchfab.com/Hassnain_ALy) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

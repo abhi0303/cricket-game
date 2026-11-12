@@ -16,6 +16,10 @@ export const CREDITS = [
     url: 'https://sketchfab.com/3d-models/stylized-cricketer-8bb84d0f58dd4dac9d85d3a2e02c176b', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
   },
   {
+    what: 'Stadium', title: 'Cricket stadium', author: 'Hassnain_ALy', authorUrl: 'https://sketchfab.com/Hassnain_ALy',
+    url: 'https://sketchfab.com/3d-models/cricket-stadium-b4b9964dacc9444e8a265a81fca22afb', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
+  },
+  {
     what: 'Players', title: 'indian male character', author: 'Aashutosh Dabhade', authorUrl: 'https://sketchfab.com/adabhade17',
     url: 'https://sketchfab.com/3d-models/indian-male-character-0baf0a4bbe314764a8d7b639e8f600ca', license: 'CC BY 4.0', licenseUrl: 'http://creativecommons.org/licenses/by/4.0/',
   },

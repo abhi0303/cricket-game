@@ -1,9 +1,10 @@
-// Scenery outside the stadium: city skyline + harbour, or hills; trees and clouds.
+// Scenery outside the stadium: city skyline + harbour, or hills; trees and clouds. opts.inner: nothing is placed
+// closer than this to the centre (the stands of the stadium model reach about 180 m).
 import * as THREE from 'three';
 import { GeoBuilder } from './GeoBuilder.js';
 import { windowTexture } from './Textures.js';
 
-export function buildScenery(type, mat, quality = 'medium') {
+export function buildScenery(type, mat, quality = 'medium', { inner = 0 } = {}) {
   const group = new THREE.Group();
   group.name = 'scenery';
   const q = { low: 0.45, medium: 1, high: 1.4 }[quality] ?? 1;
@@ -32,7 +33,7 @@ export function buildScenery(type, mat, quality = 'medium') {
       // keep the harbour side (-z) mostly open
       let a = Math.random() * Math.PI * 2;
       if (Math.cos(a) < -0.45) a += Math.PI * 0.7;
-      const r = 170 + Math.random() * 230;
+      const r = Math.max(170, inner) + Math.random() * 230;
       const w = 14 + Math.random() * 22, d = 14 + Math.random() * 22;
       const h = 18 + Math.pow(Math.random(), 1.8) * (r > 280 ? 140 : 80);
       m.makeRotationY(Math.random() * Math.PI);
@@ -49,14 +50,14 @@ export function buildScenery(type, mat, quality = 'medium') {
     const n = Math.round(46 * q) + 10;
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2 + Math.random() * 0.1;
-      const r = 260 + Math.random() * 220;
+      const r = Math.max(260, inner + 60) + Math.random() * 220;
       const h = 45 + Math.random() * 110;
       const rad = 70 + Math.random() * 90;
       const col = r > 380 ? '#7f9aa8' : ['#5c8a46', '#6a9450', '#4e7b3d'][i % 3];
       gb.add(new THREE.ConeGeometry(rad, h, 7, 1), col, { pos: [Math.sin(a) * r, h / 2 - 2, Math.cos(a) * r], rot: [0, Math.random() * 3, 0] });
     }
-    // Grass banks behind the low stands
-    for (let i = 0; i < 12; i++) {
+    // Grass banks behind the low stands (not when a bigger stadium stands there)
+    for (let i = 0; i < (inner > 130 ? 0 : 12); i++) {
       const a = (i / 12) * Math.PI * 2;
       gb.add(new THREE.ConeGeometry(30, 10, 6, 1), '#5f9248', { pos: [Math.sin(a) * 118, 2, Math.cos(a) * 118], scale: [1.4, 1, 0.7], rot: [0, -a, 0] });
     }
@@ -74,7 +75,7 @@ export function buildScenery(type, mat, quality = 'medium') {
   for (let i = 0; i < treeCount; i++) {
     let a = Math.random() * Math.PI * 2;
     if (type === 'city' && Math.cos(a) < -0.5) a += 1.2;
-    const r = 113 + Math.random() * (type === 'city' ? 40 : 110);
+    const r = Math.max(113, inner) + Math.random() * (type === 'city' ? 40 : 110);
     const s = 0.8 + Math.random() * 0.9;
     m.makeRotationY(Math.random() * 6);
     m.scale(new THREE.Vector3(s, s * (0.9 + Math.random() * 0.4), s));

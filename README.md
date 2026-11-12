@@ -224,6 +224,7 @@ assets/textures/                the pitch surface (colour and relief)
 assets/models/ball/             the ball model (ball.glb) and its red and white leather (credits in CREDITS.txt)
 assets/models/keeper/           the keeper body (keeper.glb, base.jpg, normal.jpg; credits in CREDITS.txt)
 assets/models/fielder/          the player body, worn by batters, bowlers and fielders (fielder.glb, base.jpg, normal.jpg)
+assets/models/stadium/          the stadium (stadium.glb) and what the game needs to seat it (stadium.json: rake, sections, floodlights)
 models-src/                     downloaded models at full size (not committed; the source for scripts/ball-model.html)
 tests/                          node:test suites
 scripts/physicsReport.mjs       speed x length report vs the 20.12 m baseline (npm run physics-report)
@@ -231,6 +232,7 @@ scripts/pitch-texture.html      generates the pitch textures in assets/textures/
 scripts/ball-model.html         turns the downloaded balls in models-src/ into assets/models/ball/
 scripts/keeper-model.html       rigs the downloaded keeper in models-src/ (a static mesh) into assets/models/keeper/
 scripts/fielder-model.html      turns the downloaded fielder in models-src/ into assets/models/fielder/ (paints out the shirt lettering)
+scripts/stadium-model.html      turns the downloaded stadium in models-src/ into assets/models/stadium/
 docs/bowling-physics.md         physics formulas, configuration and the full timing table
 .github/workflows/pages.yml     test + deploy to GitHub Pages
 ```
@@ -240,7 +242,7 @@ docs/bowling-physics.md         physics formulas, configuration and the full tim
 - Physics runs in a "delivery frame" with the striker at +z. When the ends change, the scene rotates that frame 180°, so the batting camera always sits at the striker's end and the bowler always delivers from the opposite end.
 - Everything is procedural (low-poly models, canvas textures, synthesized sound), so the game loads no asset files.
 
-**Performance:** static stadium geometry is merged into a handful of vertex-coloured meshes and the crowd is two instanced meshes animated in a shader. A match frame is about 140 draw calls and about 110k triangles. The Graphics setting controls resolution, shadows, crowd density and a 30 fps cap on Low.
+**Performance:** the stadium model is merged into one mesh per material, the near rows of seats are one instanced mesh and the upper rows one vertex-coloured mesh, and the crowd is two instanced meshes animated in a shader. A match frame is a few dozen draw calls; at Medium the stands hold about 20,000 modelled seats and 23,000 spectators (about 850k triangles, most of them the crowd). The Graphics setting controls resolution, shadows, how many rows get modelled seats, crowd density and a 30 fps cap on Low.
 
 ## Bowling physics
 
@@ -269,6 +271,7 @@ Every player is one skinned mesh on a shared 17-bone skeleton: hips, spine, ches
 - **Fielders and bowlers:** team cap and bare hands with fingers. The bowler holds the ball in the hand.
 - **Umpires:** blue shirt, black trousers and a wide-brimmed hat.
 - **Team kit:** colours, side panels, a chest emblem, and the player's name and number on the back. In Tests both sides wear cream whites, with the team colour kept for the trim, name, cap and helmet.
+- **The stadium:** a 3D cricket stadium model (see Credits): a bowl of stands rising about 40 m behind the boundary boards, seven floodlight towers and a big scoreboard on a pole behind one end. scripts/stadium-model.html makes it to the game's scale (the model's rope is put on the game's 63 m boundary), turns it so the scoreboard is behind the +z end, brings the boundary boards down to a real board's height and leaves out the model's own pitch, stumps, ground and seat blocks (the model is toy-scale next to its field, so its seats would be 13 m chairs). The game then seats the stands to scale: rows of seats following the stands' rake in the model's red, blue and yellow sections, with aisles between, and a crowd in them that cheers. The scoreboard shows the match, and at night the floodlights glow. The game's own outfield, pitch, stumps and sightscreens are where the play happens. The Stadium setting picks the grass and what's beyond the stands: a city skyline and harbour, or hills.
 - **The pitch:** a texture image (assets/textures/pitch.jpg, made by scripts/pitch-texture.html) of dry khaki soil with a patchy network of cracks, thin straw grass that gets greener towards the edges, worn and dusty ends, the bowlers' footmarks at the popping crease, scuffed follow-through rough, spike marks and the batters' guard marks, plus a relief map so the cracks and footmarks catch the light. The creases are painted on top.
 - **The ball:** a 3D model of a leather cricket ball (see Credits), red in Tests and white otherwise: the leather texture, a dark seam groove and six rows of raised stitching. The downloaded models were slimmed for the game by scripts/ball-model.html: both balls share one shape, the stitching was simplified from about 123,000 triangles to 11,000 and the textures resized to 1024 px, so the whole ball is about 1.1 MB instead of 18 MB. Until it has loaded, a ball painted in code stands in. New leather has a polish. As the ball gets older (over 80 overs for a red ball, about 25 for a white one) it loses its shine and picks up light scuffs, specks of mud and the odd grass mark. It spins in flight: backspin with the seam upright for pace, turning about its line of flight for spin, tumbling off the bat and rolling on the grass.
 - **Variety:** each player gets a seeded height, skin tone, hairstyle and facial hair.
@@ -303,6 +306,7 @@ To inspect them, open `/?debug=characters` (developer tool) with `&view=front|ba
 ## Credits
 
 - Ball: "Cricket Ball (Sports)." (https://sketchfab.com/3d-models/cricket-ball-sports-b13a0d69d6ca48d4b125de2cc2e7f940) and "Cricket Ball (Sports) (White)." (https://sketchfab.com/3d-models/cricket-ball-sports-white-f7fb5ae0d11e4d37a2d9ebccfcba5592) by Rohit Pawar (https://sketchfab.com/rohit8999), licensed under CC BY 4.0 (http://creativecommons.org/licenses/by/4.0/). Simplified for the game (stitching reduced, textures resized, one shared shape).
+- Stadium: "Cricket stadium" (https://sketchfab.com/3d-models/cricket-stadium-b4b9964dacc9444e8a265a81fca22afb) by Hassnain_ALy (https://sketchfab.com/Hassnain_ALy), licensed under CC BY 4.0. Adapted for the game: scaled and turned, boundary boards lowered, its pitch, ground and seat blocks left out (the game seats the stands itself), scoreboard showing the match.
 - Players (batters, bowlers and fielders): "indian male character" (https://sketchfab.com/3d-models/indian-male-character-0baf0a4bbe314764a8d7b639e8f600ca) by Aashutosh Dabhade (https://sketchfab.com/adabhade17), licensed under CC BY 4.0. Adapted for the game: the shirt's lettering and number painted out, kit recoloured per team.
 - Keeper: "Stylized Cricketer" (https://sketchfab.com/3d-models/stylized-cricketer-8bb84d0f58dd4dac9d85d3a2e02c176b) by kanesk06 (https://sketchfab.com/kanesk06), licensed under CC BY 4.0. Adapted for the game: simplified, rigged with a skeleton and skin weights, kit recoloured per team.
 

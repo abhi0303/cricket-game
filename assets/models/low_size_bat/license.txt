@@ -1,0 +1,11 @@
+Model Information:
+* title:	Cricket BAT 3D model SS
+* source:	https://sketchfab.com/3d-models/cricket-bat-3d-model-ss-757ec245077b4957820ad84ee746ecd6
+* author:	knitro_vedant (https://sketchfab.com/knitro_vedant)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Cricket BAT 3D model SS" (https://sketchfab.com/3d-models/cricket-bat-3d-model-ss-757ec245077b4957820ad84ee746ecd6) by knitro_vedant (https://sketchfab.com/knitro_vedant) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
